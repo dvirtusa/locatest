@@ -172,18 +172,18 @@ const CHIPS_BY_TAB = {
   runtests:   ['Run PT-BR regression suite', 'Show HIL approval queue', 'Retry failing tests with patch', 'Other locales affected?'],
   rca:        ['Generate RCA report', 'Approve & file issue', 'Compare screenshots', 'Check bundle diff'],
   testgen:    ['Night Mode test suite', 'Show generated tests', 'Which suites need tests?'],
-  builds:     ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
+  builds:     ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA build status'],
 }
 
 const CHIP_MESSAGES_BY_TAB = {
   workspace: {
-    'Show dashboard': 'Show the LocaTest QA dashboard for Sprint 43 — total test count, pass rate, P0 release blockers, automation coverage percentage, and all firmware builds currently in QA.',
+    'Show dashboard': 'Show the LocaTest QA dashboard for Sprint 43 — total test count, pass rate, P0 release blockers, automation coverage percentage, and all builds currently in QA.',
     'List P0 failures': 'List all P0 release blocker failures in Sprint 43 for Nest Hub 4.1.0.12-rc3 and Thermostat 6.4.0.3-rc1. Include test IDs (LOC-NH-11198, LOC-NT-11201, etc.), failing locale, device, expected vs actual values.',
     'PT-BR coverage': 'Show PT-BR locale test coverage for Sprint 43 Nest Hub 4.1.0.12-rc3: how many tests ran, passed, failed, automation percentage, and which suites have PT-BR failures. Include the Home Screen & Ambient Display suite breakdown.',
     'Draft Buganizer ticket': 'Draft a Buganizer issue for the critical PT-BR Nest Hub home screen failures: test cases LOC-NH-11198, LOC-NH-11199, LOC-NH-11200. Root cause: missing hs_greeting_morning, hs_weather_label, hs_calendar_today in pt-BR.strings Sprint 43 bundle. Severity S2, Priority P0.',
   },
   runtests: {
-    'Run PT-BR regression suite': 'Run the PT-BR Home Screen regression suite for Nest Hub Sprint 43 firmware (4.1.0.12-rc3) across all PT-BR string key scenarios',
+    'Run PT-BR regression suite': 'Run the PT-BR Home Screen regression suite for Nest Hub Sprint 43 build (4.1.0.12-rc3) across all PT-BR string key scenarios',
     'Show HIL approval queue': 'Show the HIL approval queue — which Sprint 43 test failures are currently blocked awaiting human-in-the-loop decision?',
     'Retry failing tests with patch': 'Retry the failing PT-BR test scenarios after applying the proposed fix: add hs_greeting_morning, hs_weather_label, and hs_calendar_today to pt-BR.strings',
     'Other locales affected?': 'Which locales other than PT-BR are affected by missing home screen string keys in the Sprint 43 Nest Hub build? Check ar-SA, de-DE, fr-FR, ja-JP, ko-KR across the same suite.',
@@ -195,10 +195,10 @@ const CHIP_MESSAGES_BY_TAB = {
     'Check bundle diff': 'Show the pt-BR.strings bundle diff for Sprint 43 — which string keys are missing from the PT-BR bundle that exist in en-US.strings?',
   },
   builds: {
-    'Show all builds': 'List all firmware builds currently in QA for Sprint 43: device name, version, status, pass rate, and whether each has a release blocker.',
-    'Show blockers': 'Which firmware builds in Sprint 43 have release blockers? List device, version, blocker count, and the critical failing test cases.',
+    'Show all builds': 'List all builds currently in QA for Sprint 43: device name, version, status, pass rate, and whether each has a release blocker.',
+    'Show blockers': 'Which builds in Sprint 43 have release blockers? List device, version, blocker count, and the critical failing test cases.',
     'Nest Hub test status': 'Show the full test execution status for Nest Hub 4.1.0.12-rc3 in Sprint 43: total executed, passed, failed, skipped, per-locale breakdown, and which suites have failures.',
-    'AR-SA firmware status': 'Show the AR-SA (Arabic) test results for the currently selected firmware build: how many tests ran, passed, failed — highlight any RTL layout failures or translation-missing errors.',
+    'AR-SA build status': 'Show the AR-SA (Arabic) test results for the currently selected build: how many tests ran, passed, failed — highlight any RTL layout failures or translation-missing errors.',
   },
 }
 
@@ -446,7 +446,7 @@ function AgentCard({ type, data, onApprove, onNavigate }) {
 
 function DashCard({ data }) {
   const m = data.metrics || data
-  const rows = [['Total Tests', m.total_tests], ['Pass Rate', m.pass_rate], ['Failing', m.failing_tests ?? m.failing], ['Automation Coverage', m.automation_coverage], ['Release Blockers', m.release_blockers], ['Active Sprint', m.active_sprint], ['Firmware Builds in QA', m.firmware_builds_in_qa]].filter(([, v]) => v !== undefined)
+  const rows = [['Total Tests', m.total_tests], ['Pass Rate', m.pass_rate], ['Failing', m.failing_tests ?? m.failing], ['Automation Coverage', m.automation_coverage], ['Release Blockers', m.release_blockers], ['Active Sprint', m.active_sprint], ['Builds in QA', m.firmware_builds_in_qa]].filter(([, v]) => v !== undefined)
   return (
     <div className="phase-block" style={{ marginBottom: 16 }}>
       <div className="phase-header done-ph">
@@ -723,7 +723,7 @@ function FwCard({ data }) {
     <div className="phase-block">
       <div className="phase-header done-ph">
         <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
-        <span className="ph-title">Firmware Builds ({builds.length})</span>
+        <span className="ph-title">Builds ({builds.length})</span>
       </div>
       <div className="phase-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {builds.map(b => (
@@ -802,7 +802,7 @@ function HilOverlay({ issue, onClose }) {
                 <div style={{ fontWeight: 600, marginBottom: 10, fontFamily: 'Google Sans' }}>Affected Test Cases</div>
                 {(issue.test_case_ids || []).map(id => <div key={id} style={{ fontFamily: 'Roboto Mono', color: 'var(--g-red)', fontSize: 13, marginBottom: 4 }}>• {id}</div>)}
                 <div style={{ marginTop: 12, background: '#fce8e6', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--g-red)' }}>
-                  ⚠ This issue will block the Nest Hub firmware OTA release.
+                  ⚠ This issue will block the Nest Hub OTA release.
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                   <button className="btn-sm btn-outline" onClick={() => setStep(1)}>← Back</button>
@@ -859,8 +859,8 @@ const WORKSPACE_SESSION_CONTEXT = 'Session: Nest Hub 4.1.0.12-rc3 · Sprint 43 r
 
 const SOURCES = [
   {
-    icon: '📱', name: 'Nest Hub 4.1.0.12-rc3', desc: 'QA Build · Active firmware · Sprint 43', badge: 'Active Build', badgeClass: 'blue',
-    query: 'Show test execution summary for Nest Hub firmware 4.1.0.12-rc3 in Sprint 43: total tests, pass rate, failures by locale, P0 release blocker status.',
+    icon: '📱', name: 'Nest Hub 4.1.0.12-rc3', desc: 'QA Build · Active · Sprint 43', badge: 'Active Build', badgeClass: 'blue',
+    query: 'Show test execution summary for Nest Hub build 4.1.0.12-rc3 in Sprint 43: total tests, pass rate, failures by locale, P0 release blocker status.',
   },
   {
     icon: '🧪', name: 'pt-br-regression-suite.yaml', desc: '1,247 scenarios · Home, Assistant, Settings', badge: 'Loaded', badgeClass: 'green',
@@ -868,7 +868,7 @@ const SOURCES = [
   },
   {
     icon: '🌍', name: 'locale-configs.json', desc: '10 locales · 18,000 string keys', badge: 'Loaded', badgeClass: 'green',
-    query: 'Show locale coverage report for all 10 locales in Sprint 43 Nest Hub firmware. Compare health scores — which locales have the most failures?',
+    query: 'Show locale coverage report for all 10 locales in Sprint 43 Nest Hub build. Compare health scores — which locales have the most failures?',
   },
   {
     icon: '📋', name: 'baseline-sprint-42.json', desc: 'Previous passing run · Sprint 42', badge: 'Baseline', badgeClass: 'gray',
@@ -1533,7 +1533,7 @@ function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, set
           </div>
         )}
       </div>
-      {hilOpen && selected && <HilOverlay issue={{ id: 'b/337821049', title: `${selected.name} — Localization Failure`, severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'], description: 'Untranslated strings detected during Sprint 43 regression.' }} onClose={() => setHilOpen(false)} />}
+      {hilOpen && selected && <HilOverlay issue={{ id: 'b/337821049', title: `${selected.name} — Localization Failure`, severity: 'S2', component: 'Nest>Build>Localization>HomeScreen', test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'], description: 'Untranslated strings detected during Sprint 43 regression.' }} onClose={() => setHilOpen(false)} />}
     </div>
   )
 }
@@ -1543,8 +1543,8 @@ const BUGANIZER_ISSUES = [
   {
     id: 'b/337821049', status: 'DRAFT', severity: 'S2', priority: 'P0', approved: false,
     locale: 'pt-BR', device: 'Nest Hub',
-    title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub firmware 4.1.0.12-rc3',
-    component: 'Nest>Firmware>Localization>HomeScreen',
+    title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub build 4.1.0.12-rc3',
+    component: 'Nest>Build>Localization>HomeScreen',
     test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200', 'LOC-SIM-001'],
     description: 'Untranslated greeting, weather, and calendar strings detected on PT-BR Nest Hub.',
     rca: {
@@ -1560,7 +1560,7 @@ const BUGANIZER_ISSUES = [
     },
     bugFields: [
       ['Title', '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3'],
-      ['Component', 'Nest > Firmware > Localization > HomeScreen'],
+      ['Component', 'Nest > Build > Localization > HomeScreen'],
       ['Severity', 'S2 — Major'], ['Sprint', 'Sprint 43'], ['Assignee', 'l10n-team@google.com'],
     ],
     comment: 'Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys (hs_greeting_morning, hs_greeting_afternoon, hs_weather_label, hs_calendar_today). Apply proposed diff to pt-BR.strings and rebuild the l10n-sprint43 branch to resolve.',
@@ -1569,7 +1569,7 @@ const BUGANIZER_ISSUES = [
     id: 'b/337821050', status: 'DRAFT', severity: 'S2', priority: 'P0', approved: false,
     locale: 'ar-SA', device: 'Nest Thermostat',
     title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1',
-    component: 'Nest>Firmware>Localization>ThermostatUI',
+    component: 'Nest>Build>Localization>ThermostatUI',
     test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'],
     description: 'RTL layout engine not applied to temperature component for ar-SA locale.',
     rca: {
@@ -1585,7 +1585,7 @@ const BUGANIZER_ISSUES = [
     },
     bugFields: [
       ['Title', '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1'],
-      ['Component', 'Nest > Firmware > Localization > ThermostatUI'],
+      ['Component', 'Nest > Build > Localization > ThermostatUI'],
       ['Severity', 'S2 — Major'], ['Sprint', 'Sprint 43'], ['Assignee', 'rtl-eng@google.com'],
     ],
     comment: 'Root cause confirmed: ThermostatControlView (CL #4429183) missing RTL_CAPABLE flag. Set RTL_CAPABLE=true in ComponentManifest.xml, update temperature formatter for ar-SA digit/symbol localisation, and cherry-pick to l10n-sprint43.',
@@ -1594,7 +1594,7 @@ const BUGANIZER_ISSUES = [
     id: 'b/337821051', status: 'REVIEW', severity: 'S3', priority: 'P1', approved: false,
     locale: 'de-DE', device: 'Nest Mini',
     title: '[DE-DE][P1] Package delivery notification text truncated on Nest Mini 3.2.1.8-rc1',
-    component: 'Nest>Firmware>Localization>Notifications',
+    component: 'Nest>Build>Localization>Notifications',
     test_case_ids: ['LOC-NF-40102'],
     description: 'German notification text overflows notification bubble for package delivery alerts.',
     rca: {
@@ -1610,7 +1610,7 @@ const BUGANIZER_ISSUES = [
     },
     bugFields: [
       ['Title', '[DE-DE][P1] Package delivery notification truncated on Nest Mini 3.2.1.8-rc1'],
-      ['Component', 'Nest > Firmware > Localization > Notifications'],
+      ['Component', 'Nest > Build > Localization > Notifications'],
       ['Severity', 'S3 — Moderate'], ['Sprint', 'Sprint 43'], ['Assignee', 'ui-layout@google.com'],
     ],
     comment: 'Root cause: NotificationBubble has hardcoded max-width=240px from en-US spec. German strings average 40% longer. Fix: use locale-aware dynamic width or add text-overflow/line-wrap for long-text locales (de-DE, fi-FI, etc.).',
@@ -2208,7 +2208,7 @@ function FirmwareTab({ sessionId, userId, onTabChange, setChipContext }) {
         {FW_BUILDS.map(fw => {
           const ss = statusStyle(fw.status)
           return (
-            <div key={fw.id} className={`fw-item${selected?.id === fw.id ? ' active' : ''}`} onClick={() => { setSelected(fw); send(`[Build context] Device: ${fw.device} | Version: ${fw.version} | Status: ${fw.status} | Pass rate: ${fw.passRate} | Passed: ${fw.passed} | Failed: ${fw.failed} | Sprint 43${fw.blocker ? ' | HAS RELEASE BLOCKER' : ''}\n\nSummarise the test results for ${fw.device} firmware ${fw.version} — pass rate, failed count, any release blockers, and which locales need attention.`) }}>
+            <div key={fw.id} className={`fw-item${selected?.id === fw.id ? ' active' : ''}`} onClick={() => { setSelected(fw); send(`[Build context] Device: ${fw.device} | Version: ${fw.version} | Status: ${fw.status} | Pass rate: ${fw.passRate} | Passed: ${fw.passed} | Failed: ${fw.failed} | Sprint 43${fw.blocker ? ' | HAS RELEASE BLOCKER' : ''}\n\nSummarise the test results for ${fw.device} build ${fw.version} — pass rate, failed count, any release blockers, and which locales need attention.`) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
                 <span className="fw-device">{fw.device}</span>
                 {fw.blocker && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8, background: '#fee2e2', color: '#991b1b' }}>Blocker</span>}
