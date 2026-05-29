@@ -24,12 +24,16 @@ from sse_starlette.sse import EventSourceResponse
 
 from locatest.agents.orchestrator import build_orchestrator
 from locatest.config.settings import settings
+from locatest.routing.semantic_router import SemanticRouter
 from locatest.data.mock_data import (
     BUGANIZER_ISSUES, LOCALES, RCA_REPORTS,
     SIMULATION_SCENARIOS, SPRINTS, TEST_CASES, TEST_SUITES,
     get_dashboard_metrics,
 )
 from locatest.tools.test_tools import approve_issue_filing
+
+# ── Semantic router ────────────────────────────────────────────────────────
+_router = SemanticRouter()
 
 # ── Agent bootstrap ────────────────────────────────────────────────────────
 _session_service = InMemorySessionService()
@@ -104,6 +108,14 @@ async def run_sse(request: Request) -> EventSourceResponse:
 
     logger.info("[SSE] session=%s  msg=%r", session_id[:8], user_message[:100])
 
+    # Prepend semantic routing hint so the orchestrator has a strong signal
+    if user_message.strip():
+        routing_hint = _router.hint(user_message)
+        routed_message = f"{routing_hint}\n\nUser: {user_message}"
+        logger.info("[SSE] routing hint: %s", routing_hint)
+    else:
+        routed_message = user_message
+
     existing = await _session_service.get_session(
         app_name=_APP_NAME, user_id=user_id, session_id=session_id,
     )
@@ -114,7 +126,7 @@ async def run_sse(request: Request) -> EventSourceResponse:
 
     content = types.Content(
         role="user",
-        parts=[types.Part(text=user_message)],
+        parts=[types.Part(text=routed_message)],
     )
 
     async def event_generator():

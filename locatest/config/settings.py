@@ -14,8 +14,7 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_PROJECT: str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
 
-    # gemini-2.5-flash-preview-05-20  (user shorthand: gemini-flash-3-preview)
-    GEMINI_MODEL: str = "gemini-2.5-flash-preview-05-20"
+    GEMINI_MODEL: str = "gemini-2.0-flash-001"
 
     STATIC_FILES_DIR: str = "static"
     ENVIRONMENT: str = "custom"

@@ -3,7 +3,7 @@ substitutions:
   _SERVICE_NAME: locatest-agent
   _REGION: us-central1
   _PROJECT_ID: gcp-poc-investment-219973-ce
-  _GEMINI_MODEL: gemini-2.5-flash-preview-05-20
+  _GEMINI_MODEL: gemini-2.0-flash-001
   _SA: cloud-run@gcp-poc-investment-219973-ce.iam.gserviceaccount.com
   _SUBNET: projects/gcp-poc-investment-219973-ce/regions/us-central1/subnetworks/internal-subnet-1
 

@@ -672,6 +672,38 @@ RCA_REPORTS: list[dict] = [
         "other_locales_checked": False,
         "other_locales_affected": None,
     },
+    {
+        "id": "RCA-2026-043-003",
+        "title": "ZH-CN Nest Hub Max — Assistant 'Done' Label Falls Back to English",
+        "sprint": "Sprint 43", "created": "2026-05-28T13:00:00",
+        "status": "pending_approval", "confidence_pct": 95,
+        "test_cases": ["LOC-NH-11211"],
+        "locales_affected": ["zh-CN"],
+        "devices_affected": ["Nest Hub Max"],
+        "firmware_affected": "nest_hub_max_3.8.2.4-rc1",
+        "root_cause": (
+            "The assistant.action.done string key is absent from the zh-CN translation "
+            "bundle included in Nest Hub Max firmware 3.8.2.4-rc1. The key was added to "
+            "the en-US bundle in Sprint 42 as part of the Assistant confirmation card "
+            "redesign but was never submitted to the translation pipeline for zh-CN."
+        ),
+        "fix_type": "Bundle update",
+        "proposed_fix": {
+            "file": "nest-hub-max/res/values-zh-rCN/strings.xml",
+            "changes": [
+                {"key": "assistant.action.done", "value": "完成"},
+            ],
+        },
+        "buganizer_draft": {
+            "id": "b/335012345",
+            "title": "[ZH-CN] Nest Hub Max — assistant 'Done' label falls back to English",
+            "severity": "P1", "component": "NestHubMax/AssistantUI/Confirmation",
+            "assignee": "@wangxiaolong",
+        },
+        "estimated_fix_hours": 1,
+        "other_locales_checked": True,
+        "other_locales_affected": False,
+    },
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -735,7 +767,7 @@ BUGANIZER_ISSUES: list[dict] = [
 SIMULATION_SCENARIOS: list[dict] = [
     {
         "id": "SIM-001",
-        "name": "PT-BR Nest Hub Home Screen — Sprint 43 Regression",
+        "name": "PT-BR Regression",
         "suite": "home_screen", "locale": "pt-BR",
         "device": "Nest Hub (2nd gen)", "firmware": "4.1.0.12-rc3",
         "type": "regression", "total_cases": 47, "passed": 44, "failed": 3,
@@ -747,7 +779,7 @@ SIMULATION_SCENARIOS: list[dict] = [
     },
     {
         "id": "SIM-002",
-        "name": "AR-SA Nest Thermostat RTL Smoke",
+        "name": "AR-SA Smoke",
         "suite": "temperature_control", "locale": "ar-SA",
         "device": "Nest Thermostat (4th gen)", "firmware": "6.4.0.3-rc1",
         "type": "smoke", "total_cases": 28, "passed": 26, "failed": 2,
@@ -759,15 +791,83 @@ SIMULATION_SCENARIOS: list[dict] = [
     },
     {
         "id": "SIM-003",
-        "name": "DE-DE Full Regression — All Surfaces",
+        "name": "DE-DE Regression",
         "suite": "all", "locale": "de-DE",
         "device": "All Nest Devices", "firmware": "various",
-        "type": "full_regression", "total_cases": 1800, "passed": 1798, "failed": 2,
+        "type": "regression", "total_cases": 1800, "passed": 1798, "failed": 2,
         "duration_seconds": 5420, "status": "completed",
         "hil_triggered": False, "rca_id": None,
         "run_at": "2026-05-28T06:00:00",
     },
+    {
+        "id": "SIM-004",
+        "name": "FR-FR Smoke",
+        "suite": "notifications_alerts", "locale": "fr-FR",
+        "device": "Nest Hub Max", "firmware": "3.8.2.4-rc1",
+        "type": "smoke", "total_cases": 22, "passed": 22, "failed": 0,
+        "duration_seconds": 64, "status": "completed",
+        "hil_triggered": False, "rca_id": None,
+        "run_at": "2026-05-28T07:30:00",
+    },
+    {
+        "id": "SIM-005",
+        "name": "JA-JP Regression",
+        "suite": "settings_menu", "locale": "ja-JP",
+        "device": "Nest Hub (2nd gen)", "firmware": "4.1.0.12-rc3",
+        "type": "regression", "total_cases": 110, "passed": 108, "failed": 2,
+        "duration_seconds": 310, "status": "completed",
+        "hil_triggered": False, "rca_id": None,
+        "run_at": "2026-05-28T08:15:00",
+    },
+    {
+        "id": "SIM-006",
+        "name": "ZH-CN Smoke",
+        "suite": "assistant_ui", "locale": "zh-CN",
+        "device": "Nest Hub Max", "firmware": "3.8.2.4-rc1",
+        "type": "smoke", "total_cases": 35, "passed": 33, "failed": 2,
+        "duration_seconds": 98, "status": "completed",
+        "hil_triggered": True,
+        "hil_reason": "P1 assistant confirmation label missing — escalation pending review.",
+        "rca_id": None,
+        "run_at": "2026-05-27T22:30:00",
+    },
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGENT ROUTING EXAMPLES  (documentation / unit-test reference)
+# ─────────────────────────────────────────────────────────────────────────────
+AGENT_ROUTING_EXAMPLES: dict[str, dict] = {
+    # test_suite_agent — dashboard / overview
+    "Show me the dashboard":                         {"agent": "test_suite_agent", "intent": "dashboard"},
+    "Give me an overview of test health":            {"agent": "test_suite_agent", "intent": "dashboard"},
+    "How are we doing this sprint?":                 {"agent": "test_suite_agent", "intent": "dashboard"},
+    # test_suite_agent — test cases / failures
+    "List all failing tests in Sprint 43":           {"agent": "test_suite_agent", "intent": "failures"},
+    "Show me test cases for the home screen suite":  {"agent": "test_suite_agent", "intent": "test_cases"},
+    "What test suites are currently failing?":       {"agent": "test_suite_agent", "intent": "failures"},
+    # test_suite_agent — generate tests
+    "Generate test cases for the PT-BR home screen": {"agent": "test_suite_agent", "intent": "generate_tests"},
+    # test_suite_agent — firmware
+    "What firmware builds are in QA?":               {"agent": "test_suite_agent", "intent": "firmware"},
+    # locale_agent — locale health
+    "What is the PT-BR locale health?":              {"agent": "locale_agent", "intent": "locale_health"},
+    "Show me AR-SA coverage":                        {"agent": "locale_agent", "intent": "coverage"},
+    "How is ja-JP performing?":                      {"agent": "locale_agent", "intent": "locale_health"},
+    "Which locales have critical failures?":         {"agent": "locale_agent", "intent": "locale_health"},
+    # locale_agent — sprint / roadmap
+    "What happened in Sprint 42?":                   {"agent": "locale_agent", "intent": "sprint"},
+    "Show me the automation roadmap":                {"agent": "locale_agent", "intent": "roadmap"},
+    # locale_agent — comparison
+    "Compare pt-BR and ar-SA test results":          {"agent": "locale_agent", "intent": "comparison"},
+    # simulation_agent
+    "Run a regression for zh-CN":                    {"agent": "simulation_agent", "intent": "regression"},
+    "Run a smoke test for de-DE":                    {"agent": "simulation_agent", "intent": "smoke"},
+    "What is in the HIL approval queue?":            {"agent": "simulation_agent", "intent": "hil"},
+    # rca_agent
+    "Run RCA on the PT-BR failures":                 {"agent": "rca_agent", "intent": "rca"},
+    "Why is LOC-NT-11201 failing?":                  {"agent": "rca_agent", "intent": "rca"},
+    "File the buganizer issue for RCA-2026-043-001": {"agent": "rca_agent", "intent": "file_issue"},
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GENERATED TEST CASES (registry for agent-created tests)

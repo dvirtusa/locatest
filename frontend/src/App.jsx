@@ -1,202 +1,348 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 
-// ─── colour tokens ────────────────────────────────────────────────────────────
-const GOOGLE_BLUE   = '#1a73e8'
-const GOOGLE_RED    = '#ea4335'
-const GOOGLE_YELLOW = '#fbbc04'
-const GOOGLE_GREEN  = '#34a853'
+// ─── SSE hook ─────────────────────────────────────────────────────────────────
+function useAgent(sessionId, userId) {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [lastText, setLastText] = useState('')
 
-// ─── Utility ──────────────────────────────────────────────────────────────────
-function statusColor(s = '') {
-  const v = s.toLowerCase()
-  if (v === 'pass' || v === 'stable' || v === 'released') return GOOGLE_GREEN
-  if (v === 'fail' || v === 'critical' || v === 'failed') return GOOGLE_RED
-  if (v === 'warning' || v === 'in_progress' || v === 'in progress') return GOOGLE_YELLOW
-  if (v === 'in_qa' || v === 'in qa') return GOOGLE_BLUE
-  return '#5f6368'
+  const send = useCallback(async (text) => {
+    if (loading) return
+    setMessages(prev => [...prev, { type: 'user', text }])
+    setLoading(true)
+    let agentText = ''
+    try {
+      const resp = await fetch('/run_sse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
+      })
+      const reader = resp.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n'); buf = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          try {
+            const ev = JSON.parse(line.slice(5).trim())
+            if (ev.type === 'progress') {
+              setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'progress', label: ev.label }])
+            } else if (ev.type === 'card') {
+              setMessages(prev => [...prev.filter(m => m.type !== 'progress' && !m._streaming),
+                { type: 'card', card_type: ev.card_type, data: ev.data }])
+            } else if (ev.type === 'message_delta' && !ev.done) {
+              agentText += ev.text
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last?._streaming) return [...prev.slice(0, -1), { type: 'agent', text: agentText, _streaming: true }]
+                return [...prev, { type: 'agent', text: agentText, _streaming: true }]
+              })
+            } else if (ev.type === 'message_delta' && ev.done) {
+              setLastText(agentText)
+              setMessages(prev => prev.map(m => m._streaming ? { ...m, _streaming: false } : m))
+              setLoading(false)
+            }
+          } catch { /**/ }
+        }
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { type: 'agent', text: `Error: ${err.message}` }])
+    }
+    setLoading(false)
+  }, [loading, sessionId, userId])
+
+  return { messages, loading, send, lastText, setMessages }
 }
 
-function Badge({ label, color }) {
+// ─── Google Wordmark ───────────────────────────────────────────────────────────
+function GoogleWordmark() {
   return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 10px',
-      borderRadius: 12,
-      fontSize: 11,
-      fontWeight: 600,
-      letterSpacing: '.3px',
-      background: color + '22',
-      color,
-      border: `1px solid ${color}44`,
-    }}>{label}</span>
+    <span className="g-wordmark">
+      <span className="G">G</span><span className="o1">o</span><span className="o2">o</span><span className="g2">g</span><span className="l">l</span><span className="e">e</span>
+    </span>
   )
 }
 
-// ─── Navbar ───────────────────────────────────────────────────────────────────
+// ─── Navbar ────────────────────────────────────────────────────────────────────
 function Navbar() {
   return (
-    <header style={{
-      height: 64,
-      background: '#fff',
-      borderBottom: '1px solid #e8eaed',
-      display: 'flex',
-      alignItems: 'center',
-      padding: '0 24px',
-      gap: 12,
-      position: 'sticky',
-      top: 0,
-      zIndex: 100,
-      boxShadow: '0 1px 3px rgba(0,0,0,.08)',
-    }}>
-      <svg width="32" height="32" viewBox="0 0 24 24">
-        <path fill="#EA4335" d="M12 5.08L6 18h2.42l1.08-3h5l1.08 3H18z M10.08 13l1.92-5.33L13.92 13z"/>
-      </svg>
-      <span style={{ fontFamily: 'Google Sans', fontWeight: 600, fontSize: 18, color: '#202124' }}>
-        Loca<span style={{ color: GOOGLE_BLUE }}>Test</span>
-      </span>
-      <span style={{ color: '#dadce0', margin: '0 4px' }}>|</span>
-      <span style={{ fontFamily: 'Google Sans', color: '#5f6368', fontSize: 14 }}>Internal</span>
-      <div style={{ flex: 1 }} />
-      <div style={{
-        width: 36, height: 36, borderRadius: '50%',
-        background: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: GOOGLE_BLUE, fontWeight: 700, fontSize: 14, fontFamily: 'Google Sans',
-      }}>QA</div>
+    <header className="g-nav">
+      <div className="g-logo">
+        <svg width="24" height="24" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        <GoogleWordmark />
+      </div>
+      <div className="g-divider" />
+      <span className="g-product"><span>Loca</span><span>Test</span> <sub>Internal</sub></span>
+      <div className="g-nav-right">
+        <div className="g-icon-btn" title="Sources">
+          <svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+        </div>
+        <div className="g-icon-btn" title="Notifications">
+          <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        </div>
+        <div className="g-icon-btn" title="Help">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+        </div>
+        <div className="g-avatar">DT</div>
+      </div>
     </header>
   )
 }
 
-// ─── Sprint bar ───────────────────────────────────────────────────────────────
-function SprintBar({ onTabChange }) {
-  const pills = [
-    { label: 'Workspace', tab: 'workspace' },
-    { label: 'Simulation', tab: 'simulation' },
-    { label: 'RCA & Issues', tab: 'rca' },
-    { label: 'Test Generation', tab: 'testgen' },
-    { label: 'Firmware Builds', tab: 'firmware' },
-  ]
+// ─── Session bar ───────────────────────────────────────────────────────────────
+const WF_STAGES = ['Intake', 'Analysis', 'Simulation', 'HIL Review', 'Issue Filing', 'Complete']
+const TAB_TO_STAGE = { workspace: 1, simulation: 2, rca: 4, testgen: 1, firmware: 1 }
+const STAGE_TO_TAB = { 2: 'simulation', 3: 'rca', 4: 'rca' }
+
+function SessionBar({ activeTab, onTabChange }) {
+  const activeStage = TAB_TO_STAGE[activeTab] ?? 1
   return (
-    <div style={{
-      background: '#202124',
-      color: '#e8eaed',
-      padding: '8px 24px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      flexWrap: 'wrap',
-    }}>
-      <span style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#9aa0a6', marginRight: 8 }}>
-        Sprint 43 · Active
-      </span>
-      {pills.map(p => (
-        <button key={p.tab}
-          onClick={() => onTabChange(p.tab)}
-          style={{
-            background: 'transparent', border: '1px solid #5f6368',
-            borderRadius: 16, padding: '3px 12px',
-            color: '#e8eaed', fontSize: 12, cursor: 'pointer',
-            fontFamily: 'Google Sans',
-          }}>
-          {p.label}
-        </button>
-      ))}
-      <div style={{ flex: 1 }} />
-      <span style={{
-        background: '#fbbc0420', border: '1px solid #fbbc0444',
-        borderRadius: 12, padding: '2px 10px',
-        color: GOOGLE_YELLOW, fontSize: 12, fontWeight: 600,
-      }}>⚠ 2 Release Blockers</span>
-      <span style={{ fontSize: 12, color: '#9aa0a6' }}>89 new failures</span>
+    <div className="session-bar">
+      <div className="sb-build">
+        <div className="sb-icon">
+          <svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+        </div>
+        <span className="sb-name">Nest Hub 4.1.0.12-rc3 – QA Build</span>
+        <span className="sb-meta">· Nest Firmware · Sprint 43</span>
+      </div>
+      <div className="sb-divider" />
+      <div className="workflow">
+        {WF_STAGES.map((s, i) => (
+          <React.Fragment key={s}>
+            {i > 0 && <span className="wf-arrow">›</span>}
+            <div
+              className={`wf-stage${i < activeStage ? ' done' : i === activeStage ? ' active' : ''}${STAGE_TO_TAB[i] ? ' clickable' : ''}`}
+              onClick={() => STAGE_TO_TAB[i] && onTabChange(STAGE_TO_TAB[i])}
+            >
+              <div className="wf-dot" />
+              {s}
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="sb-right">
+        <div className="agent-indicator">
+          <div className="ai-dot" />
+          <span className="agent-label">Agent Active · 89 new failures · Sprint 43</span>
+        </div>
+        <button className="sb-btn">⏸ Pause Agent</button>
+      </div>
     </div>
   )
 }
 
-// ─── Tab nav ──────────────────────────────────────────────────────────────────
+// ─── Tab nav ───────────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'workspace',   label: 'Workspace' },
-  { id: 'simulation',  label: 'Simulation' },
-  { id: 'rca',         label: 'RCA & Issues' },
-  { id: 'testgen',     label: 'Test Generation' },
-  { id: 'firmware',    label: 'Firmware Builds' },
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'simulation', label: 'Simulation' },
+  { id: 'rca', label: 'RCA & Issues' },
+  { id: 'testgen', label: 'Test Generation' },
+  { id: 'firmware', label: 'Firmware Builds' },
 ]
 
 function TabNav({ active, onChange }) {
   return (
-    <nav style={{
-      background: '#fff',
-      borderBottom: '1px solid #e8eaed',
-      display: 'flex',
-      padding: '0 24px',
-      gap: 0,
-    }}>
+    <div className="tab-nav">
       {TABS.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)}
-          style={{
-            background: 'none', border: 'none', padding: '14px 20px',
-            cursor: 'pointer', fontSize: 14, fontFamily: 'Google Sans',
-            fontWeight: active === t.id ? 600 : 400,
-            color: active === t.id ? GOOGLE_BLUE : '#5f6368',
-            borderBottom: active === t.id ? `2px solid ${GOOGLE_BLUE}` : '2px solid transparent',
-            transition: 'all .15s',
-          }}>
+        <button key={t.id} className={`tab-btn${active === t.id ? ' active' : ''}`} onClick={() => onChange(t.id)}>
           {t.label}
         </button>
       ))}
-    </nav>
+    </div>
   )
 }
 
-// ─── Card renderers ───────────────────────────────────────────────────────────
-function DashboardCard({ data }) {
-  const m = data.metrics || data
-  const rows = [
-    ['Total Test Cases', m.total_tests ?? m.total],
-    ['Pass Rate', m.pass_rate],
-    ['Failing', m.failing_tests ?? m.failing],
-    ['Automation Coverage', m.automation_coverage],
-    ['Release Blockers', m.release_blockers],
-    ['Active Sprint', m.active_sprint],
-    ['Firmware Builds in QA', m.firmware_builds_in_qa],
-  ].filter(([, v]) => v !== undefined)
+// ─── Bottom chat bar ───────────────────────────────────────────────────────────
+const CHIPS_BY_TAB = {
+  workspace:  ['Show dashboard', 'List P0 failures', 'PT-BR coverage', 'Draft Buganizer ticket'],
+  simulation: ['Run PT-BR regression', 'Show HIL queue', 'Retry with patch', 'Other locales affected?'],
+  rca:        ['Generate RCA report', 'Approve & file issue', 'Compare screenshots', 'Check bundle diff'],
+  testgen:    ['Night Mode test suite', 'Show generated tests', 'Which suites need tests?'],
+  firmware:   ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
+}
+
+function BottomChat({ onSend, loading, lastText, activeTab }) {
+  const [input, setInput] = useState('')
+  const chips = CHIPS_BY_TAB[activeTab] || []
+  const submit = (txt) => {
+    const t = (txt || input).trim()
+    if (!t || loading) return
+    onSend(t)
+    setInput('')
+  }
+  const onKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }
   return (
-    <div className="card">
-      <div className="card-title">Dashboard Summary</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {rows.map(([k, v]) => (
-          <div key={k} style={{ background: '#f8f9fa', borderRadius: 8, padding: '10px 14px' }}>
-            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 4 }}>{k}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#202124', fontFamily: 'Google Sans' }}>{String(v)}</div>
+    <div className="bottom-chat">
+      {lastText && (
+        <div className="bc-last-msg">
+          <div className="bc-mini-avatar">
+            <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg>
           </div>
-        ))}
+          <span className="bc-alabel">LocaTest AI</span>
+          <span className="bc-preview">{lastText.slice(0, 140)}{lastText.length > 140 ? '…' : ''}</span>
+          <div className="bc-history-btn">Full conversation ↑</div>
+        </div>
+      )}
+      <div className="bc-input-row">
+        <div className="bc-chips">
+          {chips.map(c => (
+            <div key={c} className="bc-chip" onClick={() => submit(c)}>
+              {c}
+            </div>
+          ))}
+        </div>
+        <div className="bc-divider" />
+        <div className="bc-input-wrap">
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="Ask LocaTest AI about this QA session… or type / for playbooks"
+          />
+          <button className="bc-send" onClick={() => submit()} disabled={loading || !input.trim()}>
+            <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Send
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
-function SuiteSummaryCard({ data }) {
-  const s = data.suite || data
+// ─── Agent feed messages ───────────────────────────────────────────────────────
+function AgentMsg({ msg, onApprove }) {
+  const bottomRef = useRef(null)
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [])
+  if (msg.type === 'user') {
+    return (
+      <div className="msg-user" ref={bottomRef}>
+        <div className="msg-user-bubble">{msg.text}</div>
+      </div>
+    )
+  }
+  if (msg.type === 'progress') {
+    return (
+      <div className="msg-progress" ref={bottomRef}>
+        <div className="spinner" />
+        {msg.label}
+      </div>
+    )
+  }
+  if (msg.type === 'agent') {
+    return (
+      <div className="msg-agent" ref={bottomRef}>
+        <div className="agent-avatar" style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0 }}>
+          <svg viewBox="0 0 24 24" width={14} height={14}><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg>
+        </div>
+        <div className="msg-agent-bubble">{msg.text}{msg._streaming && <span className="cursor" />}</div>
+      </div>
+    )
+  }
+  if (msg.type === 'card') {
+    return <div ref={bottomRef}><AgentCard type={msg.card_type} data={msg.data} onApprove={onApprove} /></div>
+  }
+  return null
+}
+
+// ─── Card renderers ────────────────────────────────────────────────────────────
+function AgentCard({ type, data, onApprove }) {
+  switch (type) {
+    case 'test.failures': return <FailuresCard data={data} />
+    case 'dashboard.summary': return <DashCard data={data} />
+    case 'suite.summary': return <SuiteCard data={data} />
+    case 'test.list': case 'test.search': return <TestListCard data={data} />
+    case 'locale.coverage': case 'locale.comparison': return <LocaleCard data={data} />
+    case 'simulation.result': return <SimCard data={data} />
+    case 'rca.report': return <RcaCard data={data} />
+    case 'issue.draft': return <IssueCard data={data} onApprove={onApprove} />
+    case 'issue.filed': return <FiledCard data={data} />
+    case 'hil.queue': return <HilQCard data={data} onApprove={onApprove} />
+    case 'test.generated': return <GenCard data={data} />
+    case 'firmware.list': return <FwCard data={data} />
+    case 'sprint.summary': case 'roadmap.overview': return <GenericCard data={data} />
+    default: return null
+  }
+}
+
+function DashCard({ data }) {
+  const m = data.metrics || data
+  const rows = [['Total Tests', m.total_tests], ['Pass Rate', m.pass_rate], ['Failing', m.failing_tests ?? m.failing], ['Automation Coverage', m.automation_coverage], ['Release Blockers', m.release_blockers], ['Active Sprint', m.active_sprint], ['Firmware Builds in QA', m.firmware_builds_in_qa]].filter(([, v]) => v !== undefined)
   return (
-    <div className="card">
-      <div className="card-title">Suite: {s.name}</div>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[['Total', s.total], ['Pass', s.pass], ['Fail', s.fail], ['Coverage', s.automation_coverage]].map(([k, v]) => (
-          <div key={k} style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#202124' }}>{v}</div>
-            <div style={{ fontSize: 11, color: '#5f6368' }}>{k}</div>
+    <div className="phase-block" style={{ marginBottom: 16 }}>
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Dashboard Summary</span>
+        <span className="ph-chip done">Live</span>
+      </div>
+      <div className="phase-body">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {rows.map(([k, v]) => (
+            <div key={k} style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 12px' }}>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>{k}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', fontFamily: 'Google Sans' }}>{String(v)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FailuresCard({ data }) {
+  const failures = data.failures || []
+  return (
+    <>
+      <div style={{ fontFamily: 'Google Sans', fontSize: 13, fontWeight: 600, color: 'var(--text2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.5px' }}>Flagged Failures</div>
+      <div className="failure-list">
+        {failures.map(f => (
+          <div key={f.id} className="failure-item">
+            <span className="fi-id">{f.id}</span>
+            <div style={{ flex: 1 }}>
+              <div className="fi-desc">{f.name}</div>
+              <div className="fi-lang">{f.locale} · {f.device || f.suite}</div>
+              {f.expected && (
+                <div style={{ fontSize: 12, marginTop: 4, display: 'flex', gap: 12 }}>
+                  <span>Expected: <strong style={{ color: 'var(--g-green)' }}>{f.expected}</strong></span>
+                  <span>Found: <strong style={{ color: 'var(--g-red)' }}>{f.actual}</strong></span>
+                </div>
+              )}
+            </div>
+            <div className="fi-link">View in Simulator <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
           </div>
         ))}
       </div>
-      {s.top_failures?.length > 0 && (
-        <>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#5f6368', marginBottom: 6 }}>Top failures</div>
-          {s.top_failures.map(f => (
-            <div key={f.id} style={{ borderLeft: `3px solid ${GOOGLE_RED}`, paddingLeft: 10, marginBottom: 6, fontSize: 13 }}>
-              <span style={{ fontFamily: 'Roboto Mono', color: GOOGLE_BLUE }}>{f.id}</span>
-              {' — '}{f.name}
+    </>
+  )
+}
+
+function SuiteCard({ data }) {
+  const s = data.suite || data
+  return (
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Suite: {s.name}</span>
+        <span className="ph-chip done">Loaded</span>
+      </div>
+      <div className="phase-body">
+        <div style={{ display: 'flex', gap: 24, marginBottom: 8 }}>
+          {[['Total', s.total], ['Pass', s.pass], ['Fail', s.fail], ['Coverage', s.automation_coverage]].map(([k, v]) => (
+            <div key={k} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{v}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)' }}>{k}</div>
             </div>
           ))}
-        </>
-      )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -204,27 +350,27 @@ function SuiteSummaryCard({ data }) {
 function TestListCard({ data }) {
   const cases = data.cases || []
   return (
-    <div className="card">
-      <div className="card-title">Test Cases ({data.count ?? cases.length})</div>
-      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Test Cases ({data.count ?? cases.length})</span>
+      </div>
+      <div className="phase-body" style={{ padding: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#f8f9fa' }}>
-              {['ID', 'Name', 'Status', 'Priority', 'Locale'].map(h => (
-                <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#5f6368', fontSize: 11 }}>{h}</th>
+            <tr style={{ background: '#f8fafc' }}>
+              {['ID', 'Name', 'Status', 'Locale'].map(h => (
+                <th key={h} style={{ padding: '7px 12px', textAlign: 'left', color: 'var(--text2)', fontSize: 11, fontWeight: 600, borderBottom: '1px solid var(--border)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {cases.map(tc => (
-              <tr key={tc.id} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                <td style={{ padding: '6px 10px', fontFamily: 'Roboto Mono', color: GOOGLE_BLUE, fontSize: 12 }}>{tc.id}</td>
-                <td style={{ padding: '6px 10px' }}>{tc.name}</td>
-                <td style={{ padding: '6px 10px' }}>
-                  <Badge label={tc.status} color={statusColor(tc.status)} />
-                </td>
-                <td style={{ padding: '6px 10px', fontWeight: 600 }}>{tc.priority}</td>
-                <td style={{ padding: '6px 10px', fontFamily: 'Roboto Mono', fontSize: 12 }}>{tc.locale}</td>
+            {cases.slice(0, 10).map(tc => (
+              <tr key={tc.id} style={{ borderBottom: '1px solid var(--border2)' }}>
+                <td style={{ padding: '7px 12px', fontFamily: 'Roboto Mono', color: 'var(--g-blue)', fontSize: 12 }}>{tc.id}</td>
+                <td style={{ padding: '7px 12px' }}>{tc.name}</td>
+                <td style={{ padding: '7px 12px' }}><span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: tc.status === 'PASS' ? '#d1fae5' : '#fee2e2', color: tc.status === 'PASS' ? '#065f46' : '#991b1b' }}>{tc.status}</span></td>
+                <td style={{ padding: '7px 12px', fontFamily: 'Roboto Mono', fontSize: 12 }}>{tc.locale}</td>
               </tr>
             ))}
           </tbody>
@@ -234,80 +380,55 @@ function TestListCard({ data }) {
   )
 }
 
-function FailuresCard({ data }) {
-  const failures = data.failures || []
-  return (
-    <div className="card">
-      <div className="card-title" style={{ color: GOOGLE_RED }}>
-        ⚠ Failing Tests ({data.count ?? failures.length})
-      </div>
-      {failures.map(f => (
-        <div key={f.id} style={{
-          border: '1px solid #fce8e6', borderRadius: 8, padding: 12,
-          marginBottom: 8, background: '#fff8f8',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontFamily: 'Roboto Mono', color: GOOGLE_BLUE, fontSize: 13 }}>{f.id}</span>
-            <Badge label={f.priority} color={GOOGLE_RED} />
-            <span style={{ fontSize: 12, color: '#5f6368' }}>{f.locale} · {f.device}</span>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{f.name}</div>
-          {f.expected && (
-            <div style={{ fontSize: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><span style={{ color: '#5f6368' }}>Expected: </span><span style={{ color: GOOGLE_GREEN }}>{f.expected}</span></div>
-              <div><span style={{ color: '#5f6368' }}>Actual: </span><span style={{ color: GOOGLE_RED }}>{f.actual}</span></div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function LocaleCoverageCard({ data }) {
+function LocaleCard({ data }) {
   const locales = data.locales || (data.locale ? [data] : [])
   return (
-    <div className="card">
-      <div className="card-title">Locale Coverage</div>
-      {locales.map(l => (
-        <div key={l.code} style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
-            <span style={{ fontWeight: 600 }}>{l.code} — {l.name}</span>
-            <span style={{ color: statusColor(l.trend) }}>{l.health_score}%</span>
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Locale Coverage</span>
+      </div>
+      <div className="phase-body">
+        {locales.map(l => (
+          <div key={l.code} style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+              <strong>{l.code} — {l.name}</strong>
+              <span style={{ color: l.health_score >= 90 ? 'var(--g-green)' : l.health_score >= 75 ? 'var(--g-yellow)' : 'var(--g-red)', fontWeight: 700 }}>{l.health_score}%</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 3, width: `${l.health_score}%`, background: l.health_score >= 90 ? 'var(--g-green)' : l.health_score >= 75 ? 'var(--g-yellow)' : 'var(--g-red)' }} />
+            </div>
           </div>
-          <div style={{ height: 8, borderRadius: 4, background: '#e8eaed', overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: 4, width: `${l.health_score}%`, background: l.health_score >= 90 ? GOOGLE_GREEN : l.health_score >= 75 ? GOOGLE_YELLOW : GOOGLE_RED }} />
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }
 
-function SimulationCard({ data }) {
-  const sim = data.simulation || data
-  const sc = sim.status_color || (sim.status?.toLowerCase() === 'complete' ? 'green' : 'blue')
+function SimCard({ data }) {
+  const s = data.simulation || data
   return (
-    <div className="card">
-      <div className="card-title">Simulation Result</div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['Scenario', sim.scenario_type], ['Locale', sim.locale], ['Suite', sim.suite]].map(([k, v]) => (
-          <div key={k}><span style={{ color: '#5f6368', fontSize: 12 }}>{k}: </span><strong>{v}</strong></div>
-        ))}
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Simulation Result — {s.suite}</span>
+        <span className="ph-chip done">Complete</span>
       </div>
-      <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
-        {[['Executed', sim.executed], ['Passed', sim.passed], ['Failed', sim.failed]].map(([k, v]) => (
-          <div key={k} style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: k === 'Failed' ? GOOGLE_RED : k === 'Passed' ? GOOGLE_GREEN : '#202124' }}>{v}</div>
-            <div style={{ fontSize: 11, color: '#5f6368' }}>{k}</div>
-          </div>
-        ))}
-      </div>
-      {sim.hil_required && (
-        <div style={{ background: '#e8f0fe', borderRadius: 8, padding: 10, fontSize: 13, color: GOOGLE_BLUE }}>
-          ✋ Human-in-the-Loop approval required before filing issues
+      <div className="phase-body">
+        <div style={{ display: 'flex', gap: 24, marginBottom: 12 }}>
+          {[['Executed', s.executed, 'var(--text)'], ['Passed', s.passed, 'var(--g-green)'], ['Failed', s.failed, 'var(--g-red)']].map(([k, v, c]) => (
+            <div key={k} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 700, color: c, fontFamily: 'Google Sans' }}>{v}</div>
+              <div style={{ fontSize: 11, color: 'var(--text2)' }}>{k}</div>
+            </div>
+          ))}
         </div>
-      )}
+        {s.hil_required && (
+          <div style={{ background: 'var(--hil-l)', border: '1px solid var(--hil-border)', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: '#92400e', fontWeight: 500 }}>
+            ✋ Human-in-the-Loop approval required before Buganizer filing
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -315,158 +436,133 @@ function SimulationCard({ data }) {
 function RcaCard({ data }) {
   const r = data.report || data
   return (
-    <div className="card">
-      <div className="card-title">RCA Report — {r.id}</div>
-      <div style={{ marginBottom: 10, fontSize: 13 }}>
-        <Badge label={r.status?.replace('_', ' ')} color={r.status === 'pending_approval' ? GOOGLE_YELLOW : GOOGLE_GREEN} />
-        <span style={{ marginLeft: 8, color: '#5f6368' }}>Confidence: {r.confidence_score}</span>
+    <div className="phase-block">
+      <div className="phase-header active-ph">
+        <div className="ph-icon running"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg></div>
+        <span className="ph-title">{r.id} — {r.title?.slice(0, 50)}…</span>
+        <span className="ph-chip running">{r.confidence_score}</span>
       </div>
-      <div style={{ fontWeight: 600, marginBottom: 6 }}>{r.title}</div>
-      <div style={{ fontSize: 13, color: '#3c4043', marginBottom: 10 }}>{r.root_cause}</div>
-      {r.affected_tests?.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 4 }}>Affected tests</div>
+      <div className="phase-body">
+        <p style={{ marginBottom: 8 }}>{r.root_cause}</p>
+        {r.affected_tests?.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {r.affected_tests.map(id => (
-              <span key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 12, background: '#e8f0fe', color: GOOGLE_BLUE, padding: '2px 8px', borderRadius: 10 }}>{id}</span>
+              <span key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 12, background: '#fee2e2', color: 'var(--g-red)', padding: '2px 8px', borderRadius: 10 }}>{id}</span>
             ))}
           </div>
-        </div>
-      )}
-      {r.screenshots?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>Evidence</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {r.screenshots.map((s, i) => (
-              <div key={i} style={{
-                width: 120, height: 80, borderRadius: 8, background: '#1a1a2e',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                position: 'relative', overflow: 'hidden', border: '1px solid #dadce0',
-              }}>
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg,#1a1a2e,#16213e)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 4 }}>
-                  <div style={{ color: GOOGLE_RED, fontSize: 9, fontFamily: 'Roboto Mono', textAlign: 'center' }}>[Untranslated]</div>
-                  <div style={{ color: '#9aa0a6', fontSize: 8, marginTop: 4 }}>{s}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
-function IssueDraftCard({ data, onApprove }) {
+function IssueCard({ data, onApprove }) {
   const issue = data.issue || data
   return (
-    <div className="card" style={{ borderLeft: `3px solid ${GOOGLE_YELLOW}` }}>
-      <div className="card-title">Buganizer Issue Draft</div>
-      <div style={{ marginBottom: 8 }}>
-        <Badge label={issue.status || 'DRAFT'} color={GOOGLE_YELLOW} />
-        {issue.id && <span style={{ marginLeft: 8, fontFamily: 'Roboto Mono', color: GOOGLE_BLUE }}>{issue.id}</span>}
+    <div className="hil-card">
+      <div className="hil-header">
+        <div className="hil-icon"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z" fill="white"/></svg></div>
+        <span className="hil-label">Buganizer Draft Ready — {issue.id}</span>
+        <span className="hil-badge">Review Required</span>
       </div>
-      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{issue.title}</div>
-      <div style={{ display: 'flex', gap: 12, fontSize: 13, color: '#5f6368', marginBottom: 10 }}>
-        <span>Severity: <strong>{issue.severity}</strong></span>
-        <span>Component: {issue.component}</span>
+      <p className="hil-body"><strong>{issue.title}</strong> · Severity: {issue.severity} · Component: {issue.component}</p>
+      <div className="hil-actions">
+        <button className="btn-hil-primary" onClick={() => onApprove?.(issue)}>👁 Review &amp; Approve →</button>
+        <button className="btn-hil-secondary">View Details</button>
       </div>
-      {issue.description && (
-        <div style={{ fontSize: 13, color: '#3c4043', marginBottom: 10, background: '#f8f9fa', padding: 10, borderRadius: 6 }}>
-          {issue.description}
-        </div>
-      )}
-      {!issue.approved && (
-        <button onClick={() => onApprove && onApprove(issue.id)}
-          style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: 'pointer', fontFamily: 'Google Sans', fontWeight: 600 }}>
-          Review &amp; Approve
-        </button>
-      )}
     </div>
   )
 }
 
-function IssueFiled({ data }) {
+function FiledCard({ data }) {
   return (
-    <div className="card" style={{ borderLeft: `3px solid ${GOOGLE_GREEN}` }}>
-      <div className="card-title" style={{ color: GOOGLE_GREEN }}>✓ Issue Filed</div>
-      <div style={{ fontFamily: 'Roboto Mono', color: GOOGLE_BLUE, fontSize: 14, marginBottom: 4 }}>{data.id || data.issue?.id}</div>
-      <div style={{ fontSize: 13, color: '#3c4043' }}>{data.message || 'Issue successfully filed in Buganizer.'}</div>
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Issue Filed — {data.id || data.issue?.id}</span>
+        <span className="ph-chip done">Filed</span>
+      </div>
+      <div className="phase-body">{data.message || 'Issue successfully filed in Buganizer.'}</div>
     </div>
   )
 }
 
-function HilQueueCard({ data, onApprove }) {
+function HilQCard({ data, onApprove }) {
   const pending = data.pending || []
   return (
-    <div className="card">
-      <div className="card-title">HIL Approval Queue ({pending.length})</div>
+    <div className="hil-card">
+      <div className="hil-header">
+        <div className="hil-icon"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z" fill="white"/></svg></div>
+        <span className="hil-label">HIL Approval Queue ({pending.length} pending)</span>
+      </div>
       {pending.map(item => (
-        <div key={item.issue_id} style={{ border: '1px solid #e8eaed', borderRadius: 8, padding: 10, marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontFamily: 'Roboto Mono', color: GOOGLE_BLUE }}>{item.issue_id}</span>
-            <Badge label={item.status} color={GOOGLE_YELLOW} />
-          </div>
-          <div style={{ fontSize: 13, margin: '4px 0' }}>{item.title}</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button onClick={() => onApprove && onApprove(item.issue_id, true)}
-              style={{ background: GOOGLE_GREEN, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>
-              Approve
-            </button>
-            <button onClick={() => onApprove && onApprove(item.issue_id, false)}
-              style={{ background: GOOGLE_RED, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>
-              Reject
-            </button>
+        <div key={item.issue_id} style={{ background: 'white', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid var(--hil-border)' }}>
+          <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: 'var(--agent)', marginBottom: 4 }}>{item.issue_id}</div>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>{item.title}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-hil-primary" onClick={() => onApprove?.(item, true)}>Approve</button>
+            <button className="btn-hil-secondary" style={{ color: 'var(--g-red)', borderColor: '#fca5a5' }}>Reject</button>
           </div>
         </div>
       ))}
-      {pending.length === 0 && <div style={{ color: '#5f6368', fontSize: 13 }}>No pending approvals.</div>}
     </div>
   )
 }
 
-function TestGeneratedCard({ data }) {
+function GenCard({ data }) {
   const tests = data.tests || data.generated || []
   return (
-    <div className="card" style={{ borderLeft: `3px solid ${GOOGLE_GREEN}` }}>
-      <div className="card-title" style={{ color: GOOGLE_GREEN }}>✓ Test Cases Generated</div>
-      <div style={{ color: '#5f6368', fontSize: 13, marginBottom: 10 }}>
-        {data.count ?? tests.length} test cases for "{data.feature_name || data.feature}"
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Generated: {data.count ?? tests.length} Test Cases</span>
+        <span className="ph-chip done">✨ AI Generated</span>
       </div>
-      <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-        {tests.map((t, i) => (
-          <div key={t.id || i} style={{ borderBottom: '1px solid #f1f3f4', padding: '6px 0', fontSize: 13 }}>
-            <span style={{ fontFamily: 'Roboto Mono', color: GOOGLE_BLUE, marginRight: 8 }}>{t.id}</span>
-            <span>{t.name}</span>
-            <span style={{ marginLeft: 8, color: '#5f6368', fontSize: 12 }}>{t.locale}</span>
+      <div className="phase-body" style={{ padding: 0 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc' }}>
+              {['ID', 'Name', 'Locale'].map(h => <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--text2)', fontSize: 11, fontWeight: 600, borderBottom: '1px solid var(--border)' }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {tests.slice(0, 8).map((t, i) => (
+              <tr key={t.id || i} style={{ borderBottom: '1px solid var(--border2)' }}>
+                <td style={{ padding: '6px 12px', fontFamily: 'Roboto Mono', color: 'var(--agent)', fontSize: 11 }}>{t.id}</td>
+                <td style={{ padding: '6px 12px' }}>{t.name}</td>
+                <td style={{ padding: '6px 12px', fontFamily: 'Roboto Mono', fontSize: 12 }}>{t.locale}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.string_keys?.length > 0 && (
+          <div className="string-keys" style={{ margin: 12, borderRadius: 8 }}>
+            <div className="sk-title">⚠ New string keys — add to locale bundles</div>
+            {data.string_keys.map(k => <div key={k} className="sk-key">{k}</div>)}
           </div>
-        ))}
+        )}
       </div>
-      {data.string_keys?.length > 0 && (
-        <div style={{ marginTop: 10, background: '#fff8e1', borderRadius: 6, padding: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#f9a825', marginBottom: 4 }}>New string keys to translate</div>
-          {data.string_keys.map(k => (
-            <div key={k} style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#5f6368' }}>{k}</div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
 
-function FirmwareListCard({ data }) {
+function FwCard({ data }) {
   const builds = data.builds || data.firmware_builds || []
   return (
-    <div className="card">
-      <div className="card-title">Firmware Builds</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="phase-block">
+      <div className="phase-header done-ph">
+        <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
+        <span className="ph-title">Firmware Builds ({builds.length})</span>
+      </div>
+      <div className="phase-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {builds.map(b => (
-          <div key={b.id} style={{ background: '#f8f9fa', borderRadius: 8, padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#f8fafc', borderRadius: 8, padding: 10, border: '1px solid var(--border)' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, marginBottom: 2 }}>{b.device}</div>
-              <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#5f6368' }}>{b.version}</div>
+              <div style={{ fontWeight: 600 }}>{b.device}</div>
+              <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: 'var(--text3)' }}>{b.version}</div>
             </div>
-            <Badge label={b.status} color={statusColor(b.status)} />
-            {b.release_blocker && <Badge label="Blocker" color={GOOGLE_RED} />}
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: b.status === 'released' ? '#d1fae5' : b.status === 'in_qa' ? 'var(--g-blue-ll)' : '#f1f3f4', color: b.status === 'released' ? '#065f46' : b.status === 'in_qa' ? '#1557b0' : 'var(--text2)' }}>{b.status}</span>
+            {b.release_blocker && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#fee2e2', color: '#991b1b' }}>Blocker</span>}
           </div>
         ))}
       </div>
@@ -474,329 +570,110 @@ function FirmwareListCard({ data }) {
   )
 }
 
-function SprintCard({ data }) {
-  const s = data.sprint || data
-  return (
-    <div className="card">
-      <div className="card-title">Sprint {s.id} — {s.name}</div>
-      <div style={{ display: 'flex', gap: 20, marginBottom: 10 }}>
-        {[['New Failures', s.new_failures], ['Fixed', s.fixed_count], ['In Progress', s.in_progress]].map(([k, v]) => (
-          <div key={k} style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{v}</div>
-            <div style={{ fontSize: 11, color: '#5f6368' }}>{k}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+function GenericCard({ data }) {
+  return <div style={{ background: 'var(--agent-ll)', borderRadius: 10, padding: 12, fontSize: 13, border: '1px solid rgba(109,40,217,.1)' }}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Roboto Mono', fontSize: 12 }}>{JSON.stringify(data, null, 2)}</pre></div>
 }
 
-function RoadmapCard({ data }) {
-  const months = data.roadmap || []
-  return (
-    <div className="card">
-      <div className="card-title">Automation Roadmap</div>
-      {months.map(m => (
-        <div key={m.month} style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-            <span>{m.month}</span>
-            <span>{m.actual ?? '—'}% / {m.target}% target</span>
-          </div>
-          <div style={{ height: 8, borderRadius: 4, background: '#e8eaed', position: 'relative' }}>
-            {m.target && <div style={{ position: 'absolute', left: `${m.target}%`, top: -2, bottom: -2, width: 2, background: '#dadce0' }} />}
-            {m.actual && <div style={{ height: '100%', borderRadius: 4, width: `${m.actual}%`, background: m.actual >= m.target ? GOOGLE_GREEN : GOOGLE_YELLOW }} />}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function AgentCard({ type, data, onApprove }) {
-  switch (type) {
-    case 'dashboard.summary': return <DashboardCard data={data} />
-    case 'suite.summary':     return <SuiteSummaryCard data={data} />
-    case 'test.list':
-    case 'test.search':       return <TestListCard data={data} />
-    case 'test.failures':     return <FailuresCard data={data} />
-    case 'locale.coverage':
-    case 'locale.comparison': return <LocaleCoverageCard data={data} />
-    case 'simulation.result': return <SimulationCard data={data} />
-    case 'rca.report':        return <RcaCard data={data} />
-    case 'issue.draft':       return <IssueDraftCard data={data} onApprove={onApprove} />
-    case 'issue.filed':       return <IssueFiled data={data} />
-    case 'hil.queue':         return <HilQueueCard data={data} onApprove={onApprove} />
-    case 'test.generated':    return <TestGeneratedCard data={data} />
-    case 'firmware.list':     return <FirmwareListCard data={data} />
-    case 'sprint.summary':    return <SprintCard data={data} />
-    case 'roadmap.overview':  return <RoadmapCard data={data} />
-    default:
-      return <div className="card" style={{ fontSize: 13, color: '#5f6368' }}>{JSON.stringify(data, null, 2)}</div>
-  }
-}
-
-// ─── Agent feed ───────────────────────────────────────────────────────────────
-function AgentFeed({ messages, onApprove }) {
-  const bottomRef = useRef(null)
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-  return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 0' }}>
-      {messages.map((msg, i) => (
-        <div key={i} style={{ marginBottom: 12 }}>
-          {msg.type === 'user' && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 16px' }}>
-              <div style={{
-                background: GOOGLE_BLUE, color: '#fff',
-                borderRadius: '18px 18px 4px 18px',
-                padding: '10px 16px', maxWidth: '70%', fontSize: 14, lineHeight: 1.5,
-              }}>{msg.text}</div>
-            </div>
-          )}
-          {msg.type === 'progress' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 16px', color: '#5f6368', fontSize: 13 }}>
-              <div className="spinner" />
-              {msg.label}
-            </div>
-          )}
-          {msg.type === 'text' && (
-            <div style={{ display: 'flex', gap: 10, padding: '0 16px', alignItems: 'flex-start' }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14 }}>🤖</div>
-              <div style={{
-                background: '#f8f9fa', borderRadius: '4px 18px 18px 18px',
-                padding: '10px 14px', maxWidth: '80%', fontSize: 14, lineHeight: 1.6, color: '#3c4043',
-                whiteSpace: 'pre-wrap',
-              }}>{msg.text}</div>
-            </div>
-          )}
-          {msg.type === 'card' && (
-            <div style={{ padding: '0 16px' }}>
-              <AgentCard type={msg.card_type} data={msg.data} onApprove={onApprove} />
-            </div>
-          )}
-        </div>
-      ))}
-      <div ref={bottomRef} />
-    </div>
-  )
-}
-
-// ─── Chat bar ──────────────────────────────────────────────────────────────────
-function ChatBar({ onSend, loading, placeholder }) {
-  const [input, setInput] = useState('')
-  const submit = () => {
-    if (!input.trim() || loading) return
-    onSend(input.trim())
-    setInput('')
-  }
-  const onKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }
-  return (
-    <div style={{
-      borderTop: '1px solid #e8eaed', padding: '12px 16px',
-      background: '#fff', display: 'flex', gap: 10, alignItems: 'flex-end',
-    }}>
-      <textarea
-        value={input}
-        onChange={e => setInput(e.target.value)}
-        onKeyDown={onKey}
-        placeholder={placeholder || 'Ask the LocaTest agent…'}
-        rows={1}
-        style={{
-          flex: 1, border: '1px solid #dadce0', borderRadius: 24,
-          padding: '10px 16px', fontSize: 14, resize: 'none',
-          fontFamily: 'Google Sans', outline: 'none',
-          background: loading ? '#f8f9fa' : '#fff',
-        }}
-      />
-      <button onClick={submit} disabled={loading || !input.trim()}
-        style={{
-          background: loading || !input.trim() ? '#f1f3f4' : GOOGLE_BLUE,
-          color: loading || !input.trim() ? '#bdc1c6' : '#fff',
-          border: 'none', borderRadius: '50%', width: 44, height: 44,
-          cursor: loading || !input.trim() ? 'default' : 'pointer',
-          fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-        }}>
-        {loading ? '⏳' : '↑'}
-      </button>
-    </div>
-  )
-}
-
-// ─── Overlays ─────────────────────────────────────────────────────────────────
-function Overlay({ children, onClose }) {
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
-      zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: '#fff', borderRadius: 16, padding: 28,
-        width: 540, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto',
-        boxShadow: '0 8px 24px rgba(0,0,0,.15)',
-      }}>
-        {children}
-      </div>
-    </div>
-  )
-}
-
+// ─── HIL Overlay ───────────────────────────────────────────────────────────────
 function HilOverlay({ issue, onClose }) {
   const [step, setStep] = useState(1)
   const [notes, setNotes] = useState('')
-  const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
-
+  const [loading, setLoading] = useState(false)
   const approve = async () => {
     setLoading(true)
-    await fetch('/api/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ issue_id: issue.id, approved: true, notes }),
-    })
-    setLoading(false)
-    setDone(true)
+    await fetch('/api/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ issue_id: issue.id, approved: true, notes }) })
+    setLoading(false); setDone(true)
   }
-
   return (
-    <Overlay onClose={onClose}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <span style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 18 }}>HIL Approval</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#5f6368' }}>✕</button>
-      </div>
-
-      {done ? (
-        <div style={{ textAlign: 'center', padding: '20px 0' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
-          <div style={{ fontFamily: 'Google Sans', fontWeight: 600, fontSize: 16 }}>Issue approved &amp; filed!</div>
-          <div style={{ color: '#5f6368', fontSize: 14, marginTop: 4 }}>{issue.id}</div>
-          <button onClick={onClose} style={{ marginTop: 16, background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', cursor: 'pointer' }}>Close</button>
+    <div className="overlay-bg" onClick={onClose}>
+      <div className="overlay-box" onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <span className="overlay-title" style={{ margin: 0 }}>HIL Approval — {issue.id}</span>
+          <button className="overlay-close" onClick={onClose}>✕</button>
         </div>
-      ) : (
-        <>
-          <div style={{ display: 'flex', gap: 0, marginBottom: 24 }}>
-            {['Review', 'Verify', 'Approve'].map((s, idx) => (
-              <div key={s} style={{ flex: 1, textAlign: 'center', position: 'relative' }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%', margin: '0 auto 6px',
-                  background: step > idx + 1 ? GOOGLE_GREEN : step === idx + 1 ? GOOGLE_BLUE : '#e8eaed',
-                  color: step >= idx + 1 ? '#fff' : '#9aa0a6',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 13,
-                }}>{step > idx + 1 ? '✓' : idx + 1}</div>
-                <div style={{ fontSize: 12, color: step === idx + 1 ? GOOGLE_BLUE : '#5f6368' }}>{s}</div>
-                {idx < 2 && <div style={{ position: 'absolute', top: 13, left: '60%', right: '-40%', height: 2, background: step > idx + 1 ? GOOGLE_GREEN : '#e8eaed' }} />}
-              </div>
-            ))}
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+            <div style={{ fontFamily: 'Google Sans', fontWeight: 600, fontSize: 17 }}>Issue approved &amp; filed in Buganizer!</div>
+            <div style={{ color: 'var(--text2)', marginTop: 4 }}>{issue.id}</div>
+            <button className="btn-file-issue" style={{ marginTop: 20, width: 'auto', padding: '10px 24px' }} onClick={onClose}>Close</button>
           </div>
-
-          {step === 1 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>{issue.title}</div>
-              <div style={{ display: 'flex', gap: 12, fontSize: 13, color: '#5f6368', marginBottom: 12 }}>
-                <span>Severity: <strong>{issue.severity}</strong></span>
-                <span>Component: {issue.component}</span>
-              </div>
-              <div style={{ fontSize: 13, background: '#f8f9fa', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-                {issue.description || 'Localization failure requiring Buganizer tracking.'}
-              </div>
-              <button onClick={() => setStep(2)} style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', cursor: 'pointer', fontFamily: 'Google Sans', fontWeight: 600 }}>Review Impact →</button>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 12 }}>Affected Test Cases</div>
-              {(issue.test_case_ids || []).map(id => (
-                <div key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: GOOGLE_BLUE, marginBottom: 4 }}>{id}</div>
+        ) : (
+          <>
+            {/* Stepper */}
+            <div className="hil-stepper">
+              {['Review', 'Verify Impact', 'Approve'].map((s, idx) => (
+                <div key={s} className="hil-step">
+                  <div className="hil-step-circle" style={{ background: step > idx + 1 ? 'var(--g-green)' : step === idx + 1 ? 'var(--agent)' : 'var(--border)', color: step >= idx + 1 ? 'white' : 'var(--text3)' }}>
+                    {step > idx + 1 ? '✓' : idx + 1}
+                  </div>
+                  <div className="hil-step-label" style={{ color: step === idx + 1 ? 'var(--agent)' : 'var(--text2)' }}>{s}</div>
+                  {idx < 2 && <div className="hil-step-line" style={{ background: step > idx + 1 ? 'var(--g-green)' : 'var(--border)' }} />}
+                </div>
               ))}
-              <div style={{ marginTop: 12, background: '#fce8e6', borderRadius: 8, padding: 10, fontSize: 13, color: GOOGLE_RED }}>
-                This issue will block the Nest Hub firmware OTA release.
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button onClick={() => setStep(1)} style={{ background: '#f1f3f4', color: '#3c4043', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer' }}>← Back</button>
-                <button onClick={() => setStep(3)} style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', cursor: 'pointer', fontFamily: 'Google Sans', fontWeight: 600 }}>Verify &amp; Approve →</button>
-              </div>
             </div>
-          )}
-
-          {step === 3 && (
-            <div>
-              <div style={{ fontWeight: 600, marginBottom: 10 }}>Add Notes (optional)</div>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                placeholder="Reviewer notes…"
-                style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 8, padding: 10, fontSize: 13, minHeight: 80, resize: 'vertical', boxSizing: 'border-box' }} />
-              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button onClick={() => setStep(2)} style={{ background: '#f1f3f4', color: '#3c4043', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer' }}>← Back</button>
-                <button onClick={approve} disabled={loading}
-                  style={{ background: GOOGLE_GREEN, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', cursor: 'pointer', fontFamily: 'Google Sans', fontWeight: 600, flex: 1 }}>
-                  {loading ? 'Filing…' : '✓ Approve &amp; File Issue'}
-                </button>
+            {step === 1 && (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8, fontFamily: 'Google Sans', fontSize: 15 }}>{issue.title}</div>
+                <div style={{ display: 'flex', gap: 12, fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
+                  <span>Severity: <strong>{issue.severity}</strong></span>
+                  <span>Component: {issue.component}</span>
+                </div>
+                <div style={{ fontSize: 13, background: '#f8f9fa', padding: 12, borderRadius: 8, marginBottom: 16, lineHeight: 1.6 }}>
+                  {issue.description || 'Localization failure requiring Buganizer tracking.'}
+                </div>
+                <button className="btn-file-issue" onClick={() => setStep(2)}>Review Impact →</button>
               </div>
-            </div>
-          )}
-        </>
-      )}
-    </Overlay>
-  )
-}
-
-function SimLaunchOverlay({ onClose, onLaunch }) {
-  const [suite, setSuite] = useState('Home Screen & Ambient Display')
-  const [locale, setLocale] = useState('pt-BR')
-  const [type, setType] = useState('regression')
-  return (
-    <Overlay onClose={onClose}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <span style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 18 }}>Launch Simulation</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#5f6368' }}>✕</button>
+            )}
+            {step === 2 && (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 10, fontFamily: 'Google Sans' }}>Affected Test Cases</div>
+                {(issue.test_case_ids || []).map(id => <div key={id} style={{ fontFamily: 'Roboto Mono', color: 'var(--g-red)', fontSize: 13, marginBottom: 4 }}>• {id}</div>)}
+                <div style={{ marginTop: 12, background: '#fce8e6', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--g-red)' }}>
+                  ⚠ This issue will block the Nest Hub firmware OTA release.
+                </div>
+                <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                  <button className="btn-sm btn-outline" onClick={() => setStep(1)}>← Back</button>
+                  <button className="btn-file-issue" style={{ flex: 1 }} onClick={() => setStep(3)}>Verify &amp; Continue →</button>
+                </div>
+              </div>
+            )}
+            {step === 3 && (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Reviewer Notes (optional)</div>
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add any context or conditions for this approval…" style={{ width: '100%', border: '1.5px solid var(--border2)', borderRadius: 8, padding: 10, fontSize: 13, minHeight: 90, resize: 'vertical', fontFamily: 'Roboto' }} />
+                <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                  <button className="btn-sm btn-outline" onClick={() => setStep(2)}>← Back</button>
+                  <button className="btn-file-issue" style={{ flex: 1, background: 'var(--g-green)' }} onClick={approve} disabled={loading}>
+                    {loading ? 'Filing…' : '✓ Approve & File Issue'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
-      {[
-        ['Suite', suite, setSuite, ['Home Screen & Ambient Display', 'Google Assistant UI', 'Device Settings', 'Temperature Control UI', 'Notifications', 'Device Onboarding']],
-        ['Locale', locale, setLocale, ['pt-BR', 'ar-SA', 'de-DE', 'fr-FR', 'ja-JP', 'ko-KR', 'zh-CN', 'hi-IN', 'es-ES', 'tr-TR']],
-        ['Type', type, setType, ['regression', 'smoke', 'full', 'p0-only']],
-      ].map(([label, val, setter, opts]) => (
-        <div key={label} style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{label}</label>
-          <select value={val} onChange={e => setter(e.target.value)}
-            style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 8, padding: '8px 12px', fontSize: 14, background: '#fff' }}>
-            {opts.map(o => <option key={o}>{o}</option>)}
-          </select>
-        </div>
-      ))}
-      <button onClick={() => { onLaunch({ suite, locale, type }); onClose() }}
-        style={{ width: '100%', background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '12px 0', cursor: 'pointer', fontFamily: 'Google Sans', fontWeight: 600, fontSize: 15 }}>
-        ▶ Run Simulation
-      </button>
-    </Overlay>
+    </div>
   )
 }
 
-// ─── Workspace Tab ────────────────────────────────────────────────────────────
-const INITIAL_WORKSPACE_MESSAGES = [
+// ─── Workspace Tab ─────────────────────────────────────────────────────────────
+const INIT_WORKSPACE = [
   {
-    type: 'card',
-    card_type: 'dashboard.summary',
+    type: 'card', card_type: 'dashboard',
     data: {
-      metrics: {
-        total_tests: '18,000',
-        pass_rate: '88.3%',
-        failing: 212,
-        automation_coverage: '60.7%',
-        release_blockers: 2,
-        active_sprint: 'Sprint 43',
-        firmware_builds_in_qa: 5,
-      },
+      total_tests: 18247, pass_rate: '88.2%', failing_tests: 89,
+      automation_coverage: '60.7%', release_blockers: 2,
+      active_sprint: 'Sprint 43', firmware_builds_in_qa: 4,
     },
   },
   {
-    type: 'text',
-    text: 'Sprint 43 is active with 89 new failures. Two P0 release blockers were detected — PT-BR Nest Hub greeting string and AR-SA Thermostat RTL layout. Automation coverage is at 60.7% against the 70% target. Five firmware builds are currently in QA.',
+    type: 'agent',
+    text: 'Running PT-BR regression suite — Phase 2 of 4 · Checkout module. I\'ve identified 2 P0 release blockers in Sprint 43 affecting Nest Hub (PT-BR greeting strings) and Thermostat (AR-SA RTL layout). Automation coverage is 60.7% against the 70% target.',
   },
   {
-    type: 'card',
-    card_type: 'test.failures',
+    type: 'card', card_type: 'test.failures',
     data: {
       failures: [
         { id: 'LOC-NH-11198', name: 'Home greeting string untranslated (PT-BR)', priority: 'P0', locale: 'pt-BR', device: 'Nest Hub', expected: 'Bom dia', actual: 'Good morning' },
@@ -808,609 +685,668 @@ const INITIAL_WORKSPACE_MESSAGES = [
 ]
 
 function WorkspaceTab({ sessionId, userId }) {
-  const [messages, setMessages] = useState(INITIAL_WORKSPACE_MESSAGES)
-  const [loading, setLoading] = useState(false)
+  const { messages, loading, send, lastText, setMessages } = useAgent(sessionId, userId)
   const [hilIssue, setHilIssue] = useState(null)
-  const evsRef = useRef(null)
+  const feedRef = useRef(null)
 
-  const handleApprove = (issueId) => {
-    const dummyIssue = {
-      id: issueId,
-      title: 'Localization failure — approval required',
-      severity: 'S2',
-      component: 'Nest>Firmware>Localization',
-      test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'],
-      description: 'Untranslated string detected in PT-BR locale for Nest Hub Home Screen.',
-    }
-    setHilIssue(dummyIssue)
-  }
+  useEffect(() => {
+    setMessages(INIT_WORKSPACE)
+  }, [])
 
-  const sendMessage = useCallback(async (text) => {
-    if (loading) return
-    setMessages(prev => [...prev, { type: 'user', text }])
-    setLoading(true)
+  useEffect(() => {
+    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
+  }, [messages])
 
-    evsRef.current?.close()
-    const resp = await fetch('/run_sse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
-    })
-
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    let agentText = ''
-
-    const flush = () => {
-      if (agentText) {
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.type === 'text' && last._streaming) {
-            return [...prev.slice(0, -1), { type: 'text', text: agentText, _streaming: true }]
-          }
-          return [...prev, { type: 'text', text: agentText, _streaming: true }]
-        })
-      }
-    }
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(line.slice(5).trim())
-          if (ev.type === 'progress') {
-            setMessages(prev => [...prev, { type: 'progress', label: ev.label, tool: ev.tool }])
-          } else if (ev.type === 'card') {
-            if (agentText) {
-              setMessages(prev => [...prev.slice(0, prev.findIndex(m => m._streaming) === -1 ? prev.length : prev.findIndex(m => m._streaming)),
-                { type: 'text', text: agentText }])
-              agentText = ''
-            }
-            setMessages(prev => [
-              ...prev.filter(m => !m._streaming),
-              { type: 'card', card_type: ev.card_type, data: ev.data },
-            ])
-          } else if (ev.type === 'message_delta') {
-            if (ev.done) {
-              setMessages(prev => prev.map(m => m._streaming ? { ...m, _streaming: false } : m))
-              setLoading(false)
-            } else {
-              agentText += ev.text
-              flush()
-            }
-          } else if (ev.type === 'error') {
-            setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'text', text: `Error: ${ev.message}` }])
-            setLoading(false)
-          }
-        } catch { /* skip malformed */ }
-      }
-    }
-    setLoading(false)
-  }, [loading, sessionId, userId])
+  const SOURCES = [
+    { icon: '📱', name: 'Nest Hub 4.1.0.12-rc3', desc: 'QA Build · Active firmware · Sprint 43', badge: 'Active Build', badgeClass: 'blue', active: true },
+    { icon: '🧪', name: 'pt-br-regression-suite.yaml', desc: '1,247 scenarios · Home, Assistant, Settings', badge: 'Loaded', badgeClass: 'green' },
+    { icon: '🌍', name: 'locale-configs.json', desc: '10 locales · 18,000 string keys', badge: 'Loaded', badgeClass: 'green' },
+    { icon: '📋', name: 'baseline-sprint-42.json', desc: 'Previous passing run · Sprint 42', badge: 'Baseline', badgeClass: 'gray' },
+    { icon: '📄', name: 'sprint-43-release-notes.md', desc: 'Changelog · 14 new keys added', badge: 'Context', badgeClass: 'gray' },
+  ]
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <div style={{ width: 220, borderRight: '1px solid #e8eaed', padding: 16, overflowY: 'auto', flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#5f6368', letterSpacing: 1, marginBottom: 12 }}>SOURCES</div>
-        {[
-          { icon: '🧪', label: '18,000 Test Cases', sub: '9 Nest UI surfaces' },
-          { icon: '🌐', label: '10 Locales', sub: 'pt-BR, ar-SA, de-DE…' },
-          { icon: '📋', label: 'Sprint 43', sub: '89 new failures' },
-          { icon: '📊', label: 'RCA Reports', sub: '2 pending' },
-          { icon: '🐛', label: 'Buganizer', sub: '2 draft issues' },
-          { icon: '⚡', label: 'Simulations', sub: '3 scenarios' },
-          { icon: '📱', label: 'Firmware Builds', sub: '5 in QA' },
-        ].map(s => (
-          <div key={s.label} style={{ borderRadius: 8, padding: '8px 10px', marginBottom: 4, background: '#f8f9fa', cursor: 'default' }}>
-            <div style={{ fontSize: 13 }}>{s.icon} {s.label}</div>
-            <div style={{ fontSize: 11, color: '#5f6368', marginTop: 2 }}>{s.sub}</div>
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* Sources pane */}
+      <aside className="sources-pane">
+        <div className="sp-header">
+          <span className="sp-title">Build Sources</span>
+          <div className="sp-add">
+            <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
+            Add
           </div>
+        </div>
+        <div className="sources-list">
+          {SOURCES.map(s => (
+            <div key={s.name} className={`source-card${s.active ? ' active' : ''}`}>
+              <div className="sc-top">
+                <div className="sc-icon" style={{ background: s.active ? '#e8f0fe' : '#f8fafc' }}>{s.icon}</div>
+                <div className="sc-body">
+                  <div className="sc-name">{s.name}</div>
+                  <div className="sc-desc">{s.desc}</div>
+                </div>
+                <div style={{ fontSize: 16, color: 'var(--text3)', cursor: 'pointer' }}>⋯</div>
+              </div>
+              <span className={`sc-badge ${s.badgeClass}`}>{s.badge}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '0 10px 10px' }}>
+          <div className="sp-stats">
+            <div className="ss-title">Session Stats</div>
+            <div className="ss-row"><span className="ss-label">Tests Run</span><span className="ss-val" style={{ color: 'var(--g-blue)' }}>1,089</span></div>
+            <div className="ss-row"><span className="ss-label">Passing</span><span className="ss-val" style={{ color: 'var(--g-green)' }}>1,058</span></div>
+            <div className="ss-row"><span className="ss-label">Failing</span><span className="ss-val" style={{ color: 'var(--g-red)' }}>31</span></div>
+            <div className="ss-row"><span className="ss-label">HIL Required</span><span className="ss-val" style={{ color: 'var(--hil)' }}>3</span></div>
+            <div className="ss-row"><span className="ss-label">Remaining</span><span className="ss-val" style={{ color: 'var(--text2)' }}>158</span></div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Agent feed */}
+      <main className="agent-feed" ref={feedRef}>
+        <div className="agent-banner">
+          <div className="agent-avatar">
+            <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/><circle cx="8.5" cy="17" r="1.5"/><circle cx="15.5" cy="17" r="1.5"/></svg>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="at-label">LocaTest Agent · Analyzing</div>
+            <div className="at-text">Running Nest Hub PT-BR regression suite — Phase 2 of 4 · Home Screen module<span className="cursor" /></div>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--agent)', background: 'var(--agent-l)', padding: '4px 10px', borderRadius: 12, fontWeight: 600 }}>87% Complete</div>
+        </div>
+
+        {messages.map((msg, i) => (
+          <AgentMsg key={i} msg={msg} onApprove={(issue) => setHilIssue(issue)} />
         ))}
-      </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <AgentFeed messages={messages} onApprove={handleApprove} />
-        <ChatBar onSend={sendMessage} loading={loading} placeholder="Ask about test suites, failures, locales…" />
-      </div>
+      </main>
+
       {hilIssue && <HilOverlay issue={hilIssue} onClose={() => setHilIssue(null)} />}
     </div>
   )
 }
 
-// ─── Simulation Tab ───────────────────────────────────────────────────────────
+// ─── Simulation Tab ────────────────────────────────────────────────────────────
 const SCENARIOS = [
-  { id: 'SIM-001', name: 'PT-BR Regression', suite: 'Home Screen & Ambient Display', locale: 'pt-BR', type: 'regression', status: 'complete', executed: 45, passed: 42, failed: 3, hil_required: true },
-  { id: 'SIM-002', name: 'AR-SA Smoke', suite: 'Temperature Control UI', locale: 'ar-SA', type: 'smoke', status: 'complete', executed: 12, passed: 10, failed: 2, hil_required: true },
-  { id: 'SIM-003', name: 'DE-DE Full Suite', suite: 'Device Settings', locale: 'de-DE', type: 'full', status: 'in_progress', executed: 210, passed: 208, failed: 2, hil_required: false },
+  { id: 'LOC-SIM-001', name: 'PT-BR Regression', locale: 'pt-BR', status: 'fail', hil: true },
+  { id: 'LOC-SIM-002', name: 'AR-SA Smoke', locale: 'ar-SA', status: 'pass', dur: '1:12s' },
+  { id: 'LOC-RG-11198', name: 'PT-BR Checkout — "Place Order" untranslated', locale: 'pt-BR', status: 'fail', hil: false },
+  { id: 'LOC-RG-11199', name: 'Checkout Summary Header — PT-BR', locale: 'pt-BR', status: 'fail', hil: false },
+  { id: 'LOC-RG-11200', name: 'Payment Method Label — PT-BR', locale: 'pt-BR', status: 'fail', hil: false },
+  { id: 'LOC-SM-04821', name: 'Login Smoke — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:42s' },
+  { id: 'LOC-SM-04822', name: 'Home Screen Greeting — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:58s' },
+  { id: 'LOC-SM-04823', name: 'Assistant UI — PT-BR', locale: 'pt-BR', status: 'pass', dur: '1:05s' },
+  { id: 'LOC-NT-11201', name: 'Thermostat RTL Layout — AR-SA', locale: 'ar-SA', status: 'fail', hil: true },
+  { id: 'LOC-RG-11204', name: 'RTL Layout — AR-SA Regression', locale: 'ar-SA', status: 'queued' },
 ]
 
 function SimulationTab({ sessionId, userId }) {
   const [selected, setSelected] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [showLaunch, setShowLaunch] = useState(false)
-  const [hilIssue, setHilIssue] = useState(null)
+  const [filter, setFilter] = useState('All')
+  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+  const [hilOpen, setHilOpen] = useState(false)
 
-  const launch = async ({ suite, locale, type }) => {
-    const text = `Run a ${type} simulation for the ${suite} suite in ${locale}`
-    setMessages(prev => [...prev, { type: 'user', text }])
-    setLoading(true)
-    const resp = await fetch('/run_sse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
-    })
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(line.slice(5).trim())
-          if (ev.type === 'card' || ev.type === 'progress' || ev.type === 'message_delta') {
-            if (ev.type === 'card') setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'card', card_type: ev.card_type, data: ev.data }])
-            if (ev.type === 'progress') setMessages(prev => [...prev, { type: 'progress', label: ev.label }])
-            if (ev.type === 'message_delta' && ev.done) setLoading(false)
-          }
-        } catch { /* */ }
-      }
-    }
-    setLoading(false)
-  }
+  const filtered = filter === 'All' ? SCENARIOS : filter === 'Pass' ? SCENARIOS.filter(s => s.status === 'pass') : filter === 'Fail' ? SCENARIOS.filter(s => s.status === 'fail') : SCENARIOS.filter(s => s.hil)
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <div style={{ width: 280, borderRight: '1px solid #e8eaed', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: 16, borderBottom: '1px solid #e8eaed', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Google Sans', fontSize: 15 }}>Scenarios</span>
-          <button onClick={() => setShowLaunch(true)}
-            style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 20, padding: '6px 16px', cursor: 'pointer', fontSize: 13 }}>
-            + New
-          </button>
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* Left: scenario list */}
+      <div className="sim-left">
+        <div className="run-controls">
+          <div className="rc-buttons">
+            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All</button>
+            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>Pause</button>
+            <button className="rc-btn primary"><svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop</button>
+          </div>
+          <div>
+            <div className="progress-label">
+              <span>1,089 / 1,247 complete</span>
+              <span style={{ color: 'var(--g-red)', fontWeight: 600 }}>3 failures · 2 HIL</span>
+            </div>
+            <div className="progress-bar-wrap">
+              <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg,var(--g-blue),var(--g-green))', width: '87%' }} />
+            </div>
+          </div>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {SCENARIOS.map(s => (
-            <div key={s.id} onClick={() => setSelected(s)}
-              style={{
-                padding: '12px 16px', cursor: 'pointer',
-                borderBottom: '1px solid #f1f3f4',
-                background: selected?.id === s.id ? '#e8f0fe' : 'transparent',
-                borderLeft: selected?.id === s.id ? `3px solid ${GOOGLE_BLUE}` : '3px solid transparent',
-              }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 12, color: '#5f6368' }}>{s.locale} · {s.type}</div>
-              <div style={{ marginTop: 4 }}>
-                <Badge label={s.status.replace('_', ' ')} color={statusColor(s.status)} />
-                {s.hil_required && <Badge label="HIL" color={GOOGLE_YELLOW} />}
+        <div className="filter-tabs">
+          {[['All', 1247], ['Pass', 1086], ['Fail', 3], ['HIL', 2]].map(([label, count]) => (
+            <div key={label} className={`ft-tab${filter === label ? ' active' : ''}`} onClick={() => setFilter(label)}>
+              {label} <span className="count" style={filter === label && label === 'Fail' ? { background: '#fee2e2', color: '#991b1b' } : {}}>{count}</span>
+            </div>
+          ))}
+        </div>
+        <div className="scenario-list">
+          {filtered.map(sc => (
+            <div key={sc.id} className={`sc-item${selected?.id === sc.id ? ' active' : ''}`} onClick={() => { setSelected(sc); send(`Analyze scenario ${sc.id}: ${sc.name}`) }}>
+              <div className={`sc-status-icon ${sc.status === 'pass' ? 'sci-pass' : sc.status === 'fail' ? 'sci-fail' : sc.hil ? 'sci-hil' : 'sci-queued'}`}>
+                {sc.status === 'pass' ? '✓' : sc.status === 'fail' ? '✗' : sc.status === 'queued' ? '●●●' : '!'}
+              </div>
+              <div className="sc-body">
+                <div className="sci-id">{sc.id}</div>
+                <div className="sci-name">{sc.name}</div>
+              </div>
+              <div className="sc-right">
+                <div className="sci-lang">{sc.locale}</div>
+                {sc.hil && <div className="sci-badge sib-hil">HIL</div>}
+                {sc.status === 'fail' && !sc.hil && <div className="sci-badge sib-fail">Fail</div>}
+                {sc.dur && <div className="sci-dur">{sc.dur}</div>}
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Right: detail */}
+      <div className="sim-right">
         {selected ? (
           <>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e8eaed', background: '#f8f9fa' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 16 }}>{selected.name}</div>
-                  <div style={{ fontSize: 13, color: '#5f6368', marginTop: 2 }}>{selected.suite} · {selected.locale}</div>
+            <div className="sr-header">
+              <div>
+                <div className="srh-id">{selected.id} · Regression · Home Screen Module</div>
+                <div className="srh-title">{selected.name}</div>
+                <div className="srh-badges">
+                  {selected.status === 'fail' && <span className="srh-badge srhb-red">Critical Failure</span>}
+                  <span className="srh-badge srhb-blue">{selected.locale}</span>
+                  <span className="srh-badge srhb-gray">Regression</span>
+                  {selected.hil && <span className="srh-badge srhb-hil">⏸ Awaiting HIL Decision</span>}
                 </div>
-                <div style={{ display: 'flex', gap: 20, textAlign: 'center' }}>
-                  {[['Executed', selected.executed], ['Passed', selected.passed, GOOGLE_GREEN], ['Failed', selected.failed, GOOGLE_RED]].map(([k, v, c]) => (
-                    <div key={k}>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: c || '#202124' }}>{v}</div>
-                      <div style={{ fontSize: 11, color: '#5f6368' }}>{k}</div>
+              </div>
+              <div className="srh-actions">
+                <button className="btn-sm btn-outline">← Prev</button>
+                <button className="btn-sm btn-outline">Next →</button>
+                <button className="btn-sm btn-agent">Generate RCA →</button>
+              </div>
+            </div>
+
+            <div className="debug-tabs">
+              <div className="dt-tab active">Execution Steps <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--g-red)', marginLeft: 5, marginBottom: 1 }} /></div>
+              <div className="dt-tab">Debug Inspector</div>
+              <div className="dt-tab">Screenshots</div>
+              <div className="dt-tab">Agent Reasoning</div>
+            </div>
+
+            <div className="sim-body">
+              {/* Execution timeline */}
+              <div className="exec-timeline">
+                <div className="etl-title">Test Execution</div>
+                {[
+                  { n: 1, action: 'Navigate to Home Screen', result: 'Loaded in PT-BR locale (lang="pt-BR")', status: 'pass' },
+                  { n: 2, action: 'Verify greeting string', result: '✗ Found: "Good morning" — Expected: "Bom dia"', status: 'fail' },
+                  { n: 3, action: 'Verify weather label', result: '✗ Found: "Cloudy" — Expected: "Nublado"', status: 'fail' },
+                  { n: 4, action: 'Verify date/time format', result: '⏭ Skipped — upstream failure', status: 'skip' },
+                ].map((s, i, arr) => (
+                  <div key={s.n} className="step-item" style={{ position: 'relative' }}>
+                    {i < arr.length - 1 && <div style={{ position: 'absolute', left: 13, top: 26, bottom: -12, width: 2, background: s.status === 'pass' ? '#d1fae5' : s.status === 'fail' ? '#fecaca' : 'var(--border2)', zIndex: 0 }} />}
+                    <div className={`step-num sn-${s.status}`} style={{ zIndex: 1 }}>{s.n}</div>
+                    <div className="step-body">
+                      <div className="step-action">{s.action}</div>
+                      <div className={`step-result${s.status !== 'skip' ? ` ${s.status}` : ''}`} style={s.status === 'skip' ? { color: 'var(--text3)' } : {}}>{s.result}</div>
+                      {s.status === 'fail' && (
+                        <div className="step-screenshot">
+                          <span className="ss-img-label">📸 Screenshot at failure point</span>
+                          <div style={{ background: '#1a1a2e', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: 8 }}>
+                            <div style={{ background: 'rgba(30,41,59,.8)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 4, padding: '3px 12px', fontFamily: 'monospace', fontSize: 10, color: '#94a3b8' }}>
+                              [ "Good morning" ] &lt;en-US fallback&gt;
+                            </div>
+                            <div style={{ position: 'absolute', top: 6, right: 8, background: 'rgba(234,67,53,.85)', color: 'white', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace' }}>TRANSLATION MISSING</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Debug inspector */}
+              <div className="debug-inspector">
+                <div className="di-section">
+                  <div className="dis-header">
+                    <span className="dis-title">String Bundle Inspector</span>
+                    <span className="dis-badge error">2 keys missing</span>
+                  </div>
+                  <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
+                    <div className="kv-row"><span className="kv-key">locale</span><span className="kv-val ok">"pt-BR"</span></div>
+                    <div className="kv-row"><span className="kv-key">bundle_version</span><span className="kv-val ok">"4.1.0.12-sprint43"</span></div>
+                    <div style={{ height: 1, background: 'rgba(255,255,255,.07)', margin: '8px 0' }} />
+                    <div className="kv-row"><span className="kv-key">hs_weather_label</span><span className="kv-val ok">"Nublado" ✓</span></div>
+                    <div className="kv-row"><span className="kv-key">hs_greeting_morning</span><span className="kv-val missing">KEY NOT FOUND ✗</span></div>
+                    <div className="kv-row" style={{ marginLeft: 16 }}><span className="kv-key" style={{ color: '#f59e0b' }}>en-US fallback</span><span className="kv-val" style={{ color: '#fcd34d' }}>"Good morning"</span></div>
+                  </div>
+                </div>
+                <div className="di-section">
+                  <div className="dis-header">
+                    <span className="dis-title">Agent Confidence</span>
+                    <span className="dis-badge ok">High</span>
+                  </div>
+                  <div style={{ padding: '12px 14px' }}>
+                    {[['Root cause certainty', 97, 'var(--g-green)'], ['Fix proposal accuracy', 94, 'var(--g-blue)']].map(([k, v, c]) => (
+                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text2)', width: 170 }}>{k}</span>
+                        <div style={{ flex: 1, height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: `${v}%`, height: '100%', background: c, borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: c }}>{v}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+              </div>
+            </div>
+
+            {/* HIL Intervention */}
+            {selected.hil && (
+              <div className="hil-intervention">
+                <div className="hi-top">
+                  <div className="hi-icon"><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z"/></svg></div>
+                  <span className="hi-title">Agent Decision Point — Your Input Required</span>
+                  <div className="hi-badge">HIL</div>
+                </div>
+                <p className="hi-sub">Agent has identified a <strong>blocker failure</strong> with 97% certainty. The PT-BR string key is missing from the Sprint 43 bundle. Please choose how to proceed.</p>
+                <div className="hi-options">
+                  {[['🐛', 'Mark as Bug', 'File to Buganizer with full RCA and proposed fix'], ['🔄', 'Retry with Patch', 'Inject the missing key and re-run to confirm fix'], ['✅', 'Override — Pass', 'Mark as known issue, continue with next scenario']].map(([icon, title, desc]) => (
+                    <div key={title} className="hi-option" onClick={() => title === 'Mark as Bug' && setHilOpen(true)}>
+                      <div className="hio-icon">{icon}</div>
+                      <div className="hio-title">{title}</div>
+                      <div className="hio-desc">{desc}</div>
                     </div>
                   ))}
                 </div>
               </div>
-              {selected.hil_required && (
-                <div style={{ marginTop: 10, background: '#e8f0fe', borderRadius: 8, padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: GOOGLE_BLUE }}>✋ HIL approval required before filing</span>
-                  <button onClick={() => setHilIssue({ id: 'b/337821049', title: `${selected.name} — Localization Failures`, severity: 'S2', component: 'Nest>Firmware>Localization', test_case_ids: ['LOC-NH-11198'] })}
-                    style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>
-                    Review &amp; Approve
-                  </button>
-                </div>
-              )}
+            )}
+
+            {/* Ask agent bar */}
+            <div className="ask-bar">
+              <div className="ask-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg></div>
+              <input className="ask-input" type="text" placeholder={`Ask agent about ${selected.id}… e.g. "Are other locales affected?"`}
+                onKeyDown={e => { if (e.key === 'Enter') { send(e.target.value); e.target.value = '' } }} />
+              <button className="ask-send" onClick={e => { const inp = e.target.previousElementSibling; send(inp.value); inp.value = '' }}>Ask Agent</button>
             </div>
-            <AgentFeed messages={messages} onApprove={(id) => setHilIssue({ id, title: 'Localization Failure', severity: 'S2', component: 'Nest>Firmware>Localization', test_case_ids: [] })} />
-            <ChatBar onSend={launch} loading={loading} placeholder={`Ask about ${selected.name}…`} />
           </>
         ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#5f6368' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>⚡</div>
-            <div style={{ fontSize: 16, fontFamily: 'Google Sans', marginBottom: 4 }}>Select a scenario</div>
-            <div style={{ fontSize: 14 }}>or launch a new simulation</div>
-          </div>
+          <div className="empty-state"><div className="empty-icon">⚡</div><div className="empty-title">Select a scenario</div></div>
         )}
       </div>
-
-      {showLaunch && <SimLaunchOverlay onClose={() => setShowLaunch(false)} onLaunch={launch} />}
-      {hilIssue && <HilOverlay issue={hilIssue} onClose={() => setHilIssue(null)} />}
+      {hilOpen && <HilOverlay issue={{ id: 'b/337821049', title: `${selected.name} — Localization Failure`, severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'], description: 'Untranslated strings in PT-BR locale detected on Nest Hub Home Screen during Sprint 43 regression.' }} onClose={() => setHilOpen(false)} />}
     </div>
   )
 }
 
-// ─── RCA & Issues Tab ─────────────────────────────────────────────────────────
-const RCA_REPORTS_DATA = [
-  {
-    id: 'RCA-2026-043-001',
-    title: 'PT-BR Nest Hub Home Screen String Bundle Missing',
-    status: 'pending_approval',
-    confidence_score: '97%',
-    root_cause: 'Release branch l10n-sprint43 missing pt-BR string bundle update. Strings "hs_greeting_morning", "hs_greeting_afternoon", "hs_weather_label" defaulting to English fallback.',
-    affected_tests: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200'],
-    screenshots: ['nh_home_ptbr_greeting.png', 'nh_home_ptbr_weather.png', 'nh_home_ptbr_calendar.png'],
-    issue_id: 'b/337821049',
-  },
-  {
-    id: 'RCA-2026-043-002',
-    title: 'AR-SA Thermostat Temperature Label RTL Overflow',
-    status: 'in_analysis',
-    confidence_score: '89%',
-    root_cause: 'RTL layout engine not applied to temperature display component. Arabic numeral rendering uses LTR character sequence causing visual overflow on 4-inch display.',
-    affected_tests: ['LOC-NT-11201', 'LOC-NT-11202'],
-    screenshots: ['nt_temp_arsa_rtl.png'],
-    issue_id: 'b/337821050',
-  },
-]
-
-const BUGANIZER_ISSUES_DATA = [
-  { id: 'b/337821049', title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub firmware 4.1.0.12-rc3', severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200'], description: 'Untranslated greeting, weather, and calendar strings detected on PT-BR locale Nest Hub during Sprint 43 regression.' },
-  { id: 'b/337821050', title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1', severity: 'S2', component: 'Nest>Firmware>Localization>ThermostatUI', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'], description: 'RTL layout engine not applied to temperature component; Arabic numerals rendered LTR causing display overflow.' },
+// ─── RCA & Issues Tab ──────────────────────────────────────────────────────────
+const BUGANIZER_ISSUES = [
+  { id: 'b/337821049', title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub firmware 4.1.0.12-rc3', severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200'], description: 'Untranslated greeting, weather, and calendar strings detected on PT-BR Nest Hub.' },
+  { id: 'b/337821050', title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1', severity: 'S2', component: 'Nest>Firmware>Localization>ThermostatUI', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'], description: 'RTL layout engine not applied to temperature component.' },
 ]
 
 function RcaTab({ sessionId, userId }) {
-  const [selectedRca, setSelectedRca] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(false)
+  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+  const [selectedIssue, setSelectedIssue] = useState(BUGANIZER_ISSUES[0])
   const [hilIssue, setHilIssue] = useState(null)
-
-  const ask = async (text) => {
-    setMessages(prev => [...prev, { type: 'user', text }])
-    setLoading(true)
-    const resp = await fetch('/run_sse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
-    })
-    const reader = resp.body.getReader()
-    const dec = new TextDecoder()
-    let buf = '', agentText = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n'); buf = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(line.slice(5).trim())
-          if (ev.type === 'card') setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'card', card_type: ev.card_type, data: ev.data }])
-          if (ev.type === 'progress') setMessages(prev => [...prev, { type: 'progress', label: ev.label }])
-          if (ev.type === 'message_delta' && !ev.done) { agentText += ev.text; setMessages(prev => { const last = prev[prev.length - 1]; return last?._streaming ? [...prev.slice(0, -1), { type: 'text', text: agentText, _streaming: true }] : [...prev, { type: 'text', text: agentText, _streaming: true }] }) }
-          if (ev.type === 'message_delta' && ev.done) { setMessages(prev => prev.map(m => m._streaming ? { ...m, _streaming: false } : m)); setLoading(false) }
-        } catch { /* */ }
-      }
-    }
-    setLoading(false)
-  }
+  const [severity, setSeverity] = useState('S2')
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <div style={{ width: 280, borderRight: '1px solid #e8eaed', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e8eaed' }}>
-          <div style={{ fontWeight: 700, fontSize: 15, fontFamily: 'Google Sans', marginBottom: 8 }}>RCA Reports</div>
-          {RCA_REPORTS_DATA.map(r => (
-            <div key={r.id} onClick={() => setSelectedRca(r)}
-              style={{
-                borderRadius: 8, padding: '10px 12px', marginBottom: 8, cursor: 'pointer',
-                background: selectedRca?.id === r.id ? '#e8f0fe' : '#f8f9fa',
-                border: selectedRca?.id === r.id ? `1px solid ${GOOGLE_BLUE}44` : '1px solid transparent',
-              }}>
-              <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: GOOGLE_BLUE, marginBottom: 2 }}>{r.id}</div>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{r.title.slice(0, 60)}…</div>
-              <Badge label={r.status.replace('_', ' ')} color={r.status === 'pending_approval' ? GOOGLE_YELLOW : GOOGLE_BLUE} />
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* Left: RCA report */}
+      <div className="rca-left">
+        {/* RCA Reports panel heading */}
+        <div style={{ padding: '12px 20px 0', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontFamily: 'Google Sans', fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>RCA Reports</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Report ID: <code style={{ fontSize: 11 }}>RCA-2026-043-001</code> · Sprint 43 · PT-BR Regression</div>
+        </div>
+        {/* RCA header */}
+        <div className="rca-header">
+          <div className="rca-avatar">
+            <svg viewBox="0 0 24 24"><path d="M9.5 2A1.5 1.5 0 008 3.5v1A1.5 1.5 0 009.5 6h5A1.5 1.5 0 0016 4.5v-1A1.5 1.5 0 0014.5 2h-5zM6 5a3 3 0 00-3 3v9a3 3 0 003 3h12a3 3 0 003-3V8a3 3 0 00-3-3h-.5A2.5 2.5 0 0115 7.5h-6A2.5 2.5 0 016.5 5H6z"/></svg>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="rcah-label">Agent Root Cause Analysis · Complete</div>
+            <div className="rcah-title">PT-BR Nest Hub Home Screen — Sprint 43 String Keys</div>
+            <div className="rcah-meta">
+              <span className="rcah-badge" style={{ background: '#d1fae5', color: '#065f46' }}>97% Confidence</span>
+              <span className="rcah-badge" style={{ background: 'var(--hil-l)', color: '#92400e' }}>Pending Approval</span>
+              <span className="rcah-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>P0 Release Blocker</span>
             </div>
-          ))}
-          <div style={{ fontWeight: 700, fontSize: 15, fontFamily: 'Google Sans', margin: '12px 0 8px' }}>Buganizer Drafts</div>
-          {BUGANIZER_ISSUES_DATA.map(issue => (
-            <div key={issue.id} style={{ borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: '#fff8f8', border: '1px solid #fce8e6' }}>
-              <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: GOOGLE_BLUE, marginBottom: 2 }}>{issue.id}</div>
-              <div style={{ fontSize: 12, marginBottom: 6 }}>{issue.title.slice(0, 55)}…</div>
-              <button onClick={() => setHilIssue(issue)}
-                style={{ background: GOOGLE_BLUE, color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 12 }}>
-                Review &amp; Approve
-              </button>
+          </div>
+          <div className="rcah-actions">
+            <button className="btn-sm btn-outline">← Back</button>
+            <button className="btn-sm btn-agent">File Issue →</button>
+          </div>
+        </div>
+
+        {/* Root cause */}
+        <div className="rca-section">
+          <div className="rca-sec-header">
+            <div className="rsh-icon" style={{ background: 'var(--g-red)' }}><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z"/></svg></div>
+            <span className="rsh-title">Root Cause</span>
+            <span className="rsh-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>Blocker</span>
+          </div>
+          <div className="rca-sec-body">
+            <p className="rca-narrative">
+              Release branch <code>l10n-sprint43</code> is missing the PT-BR string bundle update. Strings <code>hs_greeting_morning</code>, <code>hs_greeting_afternoon</code>, <code>hs_weather_label</code>, and <code>hs_calendar_today</code> were added to <code>en-US.strings</code> in Sprint 43 but were <strong>not propagated to the PT-BR bundle</strong> <code>pt-BR.strings</code>. The app correctly detects the missing keys and falls back to the English locale — resulting in untranslated UI on all PT-BR Nest Hub devices.
+            </p>
+          </div>
+        </div>
+
+        {/* String bundle diff */}
+        <div className="rca-section">
+          <div className="rca-sec-header">
+            <div className="rsh-icon" style={{ background: 'var(--g-blue)' }}><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg></div>
+            <span className="rsh-title">String Bundle Diff</span>
+            <span className="rsh-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>4 keys missing</span>
+          </div>
+          <div className="rca-sec-body">
+            <div className="evidence-grid">
+              <div className="ev-card">
+                <div className="ev-title">en-US.strings (Sprint 43)</div>
+                <div className="ev-code">
+                  <div className="ev-ok">hs_greeting_morning = "Good morning"</div>
+                  <div className="ev-ok">hs_greeting_afternoon = "Good afternoon"</div>
+                  <div className="ev-ok">hs_weather_label = "Weather"</div>
+                  <div className="ev-ok">hs_calendar_today = "Today"</div>
+                </div>
+              </div>
+              <div className="ev-card">
+                <div className="ev-title">pt-BR.strings (Sprint 43)</div>
+                <div className="ev-code">
+                  <div className="ev-missing">hs_greeting_morning = ∅ MISSING</div>
+                  <div className="ev-missing">hs_greeting_afternoon = ∅ MISSING</div>
+                  <div className="ev-missing">hs_weather_label = ∅ MISSING</div>
+                  <div className="ev-missing">hs_calendar_today = ∅ MISSING</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div className="diff-header">
+                <span className="diff-filename">pt-BR.strings</span>
+                <span style={{ fontSize: 11, background: 'rgba(52,168,83,.2)', color: '#81c995', padding: '1px 8px', borderRadius: 8, fontWeight: 600 }}>Proposed Fix</span>
+              </div>
+              <div className="diff-body">
+                <div className="diff-line ctx"><span className="dl-gutter ctx" /><span className="dl-code ctx">// Home Screen - Sprint 43 additions</span></div>
+                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_greeting_morning = "Bom dia";</span></div>
+                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_greeting_afternoon = "Boa tarde";</span></div>
+                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_weather_label = "Tempo";</span></div>
+                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_calendar_today = "Hoje";</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Visual evidence */}
+        <div className="rca-section">
+          <div className="rca-sec-header">
+            <div className="rsh-icon" style={{ background: 'var(--agent)' }}><svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>
+            <span className="rsh-title">Visual Evidence — Untranslated Strings Captured on Device</span>
+          </div>
+          <div className="rca-sec-body">
+            <div style={{ display: 'flex', gap: 12 }}>
+              {[['Greeting', 'Good morning', 'Bom dia'], ['Weather', 'Weather', 'Tempo'], ['Calendar', 'Today', 'Hoje']].map(([label, wrong, right]) => (
+                <div key={label} style={{ flex: 1, background: '#1a1a2e', borderRadius: 10, overflow: 'hidden', border: '1px solid #3c3c5c' }}>
+                  <div style={{ background: '#303134', padding: '4px 10px', fontSize: 10, color: '#9aa0a6', fontFamily: 'Roboto Mono' }}>Nest Hub · pt-BR · {label}</div>
+                  <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ background: 'rgba(30,30,50,.8)', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'Roboto Mono' }}>
+                      <div style={{ color: '#f28b82', fontSize: 9, marginBottom: 2 }}>ACTUAL (untranslated)</div>
+                      <div style={{ color: '#fca5a5' }}>"{wrong}"</div>
+                    </div>
+                    <div style={{ background: 'rgba(30,50,30,.8)', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'Roboto Mono' }}>
+                      <div style={{ color: '#81c995', fontSize: 9, marginBottom: 2 }}>EXPECTED</div>
+                      <div style={{ color: '#86efac' }}>"{right}"</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Impact table */}
+        <div className="rca-section">
+          <div className="rca-sec-header">
+            <div className="rsh-icon" style={{ background: 'var(--hil)' }}><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z"/></svg></div>
+            <span className="rsh-title">Impact Analysis</span>
+            <span className="rsh-badge" style={{ background: 'var(--hil-l)', color: '#92400e' }}>3 Locales Affected</span>
+          </div>
+          <div className="rca-sec-body" style={{ padding: 0 }}>
+            <table className="impact-table">
+              <thead><tr><th>Test ID</th><th>Description</th><th>Severity</th><th>Device</th></tr></thead>
+              <tbody>
+                {[['LOC-NH-11198', 'Greeting string untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11199', 'Weather label untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11200', 'Calendar "Today" untranslated', 'P1', 'Nest Hub']].map(([id, desc, sev, dev]) => (
+                  <tr key={id}>
+                    <td style={{ fontFamily: 'Roboto Mono', color: 'var(--g-blue)', fontSize: 12 }}>{id}</td>
+                    <td>{desc}</td>
+                    <td><span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: sev === 'P0' ? '#fee2e2' : '#fff7ed', color: sev === 'P0' ? '#991b1b' : '#9a3412' }}>{sev}</span></td>
+                    <td style={{ color: 'var(--text2)' }}>{dev}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Agent messages */}
+        {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+      </div>
+
+      {/* Right: Issue filing panel */}
+      <div className="rca-right">
+        <div className="issue-panel-header">
+          Issue Filing — Buganizer
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)' }}>Auto-populated by Agent</span>
+        </div>
+        <div className="issue-form">
+          <div className="form-field"><label>Title</label><input defaultValue="[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3" /></div>
+          <div className="form-field">
+            <label>Severity</label>
+            <div className="sev-pills">
+              {['S0', 'S1', 'S2', 'S3'].map((s, i) => (
+                <div key={s} className={`sev-pill${severity === s ? ` active s${i}` : ''}`} onClick={() => setSeverity(s)}>{s}</div>
+              ))}
+            </div>
+          </div>
+          <div className="form-field"><label>Component</label><input defaultValue="Nest > Firmware > Localization > HomeScreen" /></div>
+          <div className="form-field"><label>Assignee</label><input defaultValue="l10n-team@google.com" /></div>
+          <div className="form-field">
+            <label>Affected Test Cases</label>
+            {selectedIssue.test_case_ids.map(id => (
+              <div key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: 'var(--g-red)', padding: '2px 0' }}>• {id}</div>
+            ))}
+          </div>
+          <div className="form-field"><label>Developer Comments</label><textarea rows={3} defaultValue="Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys. Fix: apply proposed diff to pt-BR.strings and rebuild." /></div>
+          {messages.filter(m => m.type === 'agent').slice(-1).map((msg, i) => (
+            <div key={i} style={{ background: 'var(--agent-ll)', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--dark2)', border: '1px solid rgba(109,40,217,.1)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--agent)', marginBottom: 4 }}>AGENT RECOMMENDATION</div>
+              {msg.text}
             </div>
           ))}
         </div>
+        <div className="confirm-panel">
+          <div className="confirm-checklist">
+            {['RCA complete — 97% confidence', 'Root cause: 4 missing PT-BR string keys', 'Fix diff attached and reviewed', 'Affected test cases linked (3)'].map(item => (
+              <div key={item} className="check-row">
+                <svg viewBox="0 0 24 24" width={16} height={16} style={{ fill: 'none', stroke: 'var(--g-green)', strokeWidth: 2 }}><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--g-green)" stroke="none"/></svg>
+                {item}
+              </div>
+            ))}
+          </div>
+          <button className="btn-file-issue" onClick={() => setHilIssue(selectedIssue)}>
+            🐛 Approve &amp; File Issue in Buganizer →
+          </button>
+        </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {selectedRca ? (
-          <>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e8eaed', overflowY: 'auto' }}>
-              <div style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{selectedRca.title}</div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <Badge label={selectedRca.status.replace('_', ' ')} color={selectedRca.status === 'pending_approval' ? GOOGLE_YELLOW : GOOGLE_BLUE} />
-                <span style={{ fontSize: 13, color: '#5f6368' }}>Confidence: {selectedRca.confidence_score}</span>
-              </div>
-              <div style={{ fontSize: 14, color: '#3c4043', marginBottom: 12, background: '#f8f9fa', padding: 12, borderRadius: 8 }}>
-                <strong>Root Cause: </strong>{selectedRca.root_cause}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                {selectedRca.affected_tests.map(id => (
-                  <span key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 12, background: '#fce8e6', color: GOOGLE_RED, padding: '2px 8px', borderRadius: 10 }}>{id}</span>
-                ))}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#5f6368' }}>Evidence — Untranslated Strings</div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                {selectedRca.screenshots.map((s, i) => (
-                  <div key={i} style={{ width: 140, height: 100, borderRadius: 10, background: '#1a1a2e', position: 'relative', overflow: 'hidden', border: '1px solid #3c3c5c', flexShrink: 0 }}>
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 8 }}>
-                      <div style={{ width: '90%', height: 3, background: '#3c3c5c', borderRadius: 2, marginBottom: 6 }} />
-                      <div style={{ color: GOOGLE_RED, fontSize: 10, fontFamily: 'Roboto Mono', textAlign: 'center', marginBottom: 4 }}>Good morning</div>
-                      <div style={{ color: GOOGLE_GREEN, fontSize: 9, fontFamily: 'Roboto Mono', textAlign: 'center', marginBottom: 6 }}>→ Bom dia</div>
-                      <div style={{ width: '70%', height: 2, background: '#3c3c5c', borderRadius: 2 }} />
-                      <div style={{ color: '#9aa0a6', fontSize: 8, marginTop: 4 }}>{s}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <AgentFeed messages={messages} onApprove={(id) => setHilIssue(BUGANIZER_ISSUES_DATA.find(x => x.id === id) || { id, title: 'RCA Issue', severity: 'S2', component: 'Nest>Firmware>Localization', test_case_ids: [] })} />
-            <ChatBar onSend={ask} loading={loading} placeholder="Ask about this RCA, create or approve issues…" />
-          </>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#5f6368' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🔬</div>
-            <div style={{ fontSize: 16, fontFamily: 'Google Sans', marginBottom: 4 }}>Select an RCA report</div>
-            <div style={{ fontSize: 14 }}>or ask about localization failures</div>
-          </div>
-        )}
-      </div>
       {hilIssue && <HilOverlay issue={hilIssue} onClose={() => setHilIssue(null)} />}
     </div>
   )
 }
 
-// ─── Test Generation Tab ──────────────────────────────────────────────────────
+// ─── Test Generation Tab ───────────────────────────────────────────────────────
 function TestGenTab({ sessionId, userId }) {
+  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
   const [form, setForm] = useState({ feature: '', device: 'Nest Hub', suite: 'Home Screen & Ambient Display', locales: 'all', priority: 'P1', description: '' })
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(false)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const generate = async () => {
-    const text = `Generate test cases for the "${form.feature}" feature on ${form.device}, suite: ${form.suite}, locales: ${form.locales}, priority: ${form.priority}. ${form.description}`
-    setMessages(prev => [...prev, { type: 'user', text }])
-    setLoading(true)
-    const resp = await fetch('/run_sse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
-    })
-    const reader = resp.body.getReader()
-    const dec = new TextDecoder()
-    let buf = '', agentText = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n'); buf = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(line.slice(5).trim())
-          if (ev.type === 'card') setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'card', card_type: ev.card_type, data: ev.data }])
-          if (ev.type === 'progress') setMessages(prev => [...prev, { type: 'progress', label: ev.label }])
-          if (ev.type === 'message_delta' && !ev.done) { agentText += ev.text; setMessages(prev => { const last = prev[prev.length - 1]; return last?._streaming ? [...prev.slice(0, -1), { type: 'text', text: agentText, _streaming: true }] : [...prev, { type: 'text', text: agentText, _streaming: true }] }) }
-          if (ev.type === 'message_delta' && ev.done) { setMessages(prev => prev.map(m => m._streaming ? { ...m, _streaming: false } : m)); setLoading(false) }
-        } catch { /* */ }
-      }
-    }
-    setLoading(false)
+  const generate = () => {
+    if (!form.feature.trim()) return
+    send(`Generate test cases for "${form.feature}" on ${form.device}, suite: ${form.suite}, locales: ${form.locales}, priority: ${form.priority}. ${form.description}`)
   }
 
-  const inputStyle = { width: '100%', border: '1px solid #dadce0', borderRadius: 8, padding: '8px 12px', fontSize: 14, fontFamily: 'Google Sans', boxSizing: 'border-box', outline: 'none' }
-  const labelStyle = { display: 'block', fontSize: 13, fontWeight: 600, color: '#3c4043', marginBottom: 6 }
-
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <div style={{ width: 320, borderRight: '1px solid #e8eaed', padding: 20, overflowY: 'auto', flexShrink: 0 }}>
-        <div style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 16, marginBottom: 20 }}>Generate Test Cases</div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelStyle}>Feature Name *</label>
-          <input value={form.feature} onChange={e => setField('feature', e.target.value)}
-            placeholder="e.g. Night Mode for Thermostat" style={inputStyle} />
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelStyle}>Nest Device</label>
-          <select value={form.device} onChange={e => setField('device', e.target.value)} style={inputStyle}>
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="testgen-form">
+        <div className="tg-title">Generate Test Cases</div>
+        <div className="tg-field"><label className="tg-label">Feature Name *</label><input className="tg-input" value={form.feature} onChange={e => set('feature', e.target.value)} placeholder="e.g. Night Mode Display for Thermostat" /></div>
+        <div className="tg-field"><label className="tg-label">Nest Device</label>
+          <select className="tg-select" value={form.device} onChange={e => set('device', e.target.value)}>
             {['Nest Hub', 'Nest Hub Max', 'Nest Mini', 'Nest Cam', 'Nest Doorbell', 'Nest Thermostat'].map(d => <option key={d}>{d}</option>)}
           </select>
         </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelStyle}>UI Suite</label>
-          <select value={form.suite} onChange={e => setField('suite', e.target.value)} style={inputStyle}>
+        <div className="tg-field"><label className="tg-label">UI Suite</label>
+          <select className="tg-select" value={form.suite} onChange={e => set('suite', e.target.value)}>
             {['Home Screen & Ambient Display', 'Google Assistant UI', 'Device Settings', 'Temperature Control UI', 'Nest Cam & Doorbell UI', 'Routines & Automation', 'Notifications', 'Device Onboarding', 'Media Playback & Cast'].map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelStyle}>Locales</label>
-          <select value={form.locales} onChange={e => setField('locales', e.target.value)} style={inputStyle}>
-            <option value="all">All 10 locales</option>
+        <div className="tg-field"><label className="tg-label">Locales</label>
+          <select className="tg-select" value={form.locales} onChange={e => set('locales', e.target.value)}>
+            <option value="all">All 10 locales (recommended)</option>
             {['pt-BR', 'ar-SA', 'de-DE', 'fr-FR', 'ja-JP', 'ko-KR', 'zh-CN', 'hi-IN', 'es-ES', 'tr-TR'].map(l => <option key={l}>{l}</option>)}
           </select>
         </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelStyle}>Priority</label>
-          <select value={form.priority} onChange={e => setField('priority', e.target.value)} style={inputStyle}>
+        <div className="tg-field"><label className="tg-label">Priority</label>
+          <select className="tg-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
             {['P0', 'P1', 'P2', 'P3'].map(p => <option key={p}>{p}</option>)}
           </select>
         </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <label style={labelStyle}>Feature Description</label>
-          <textarea value={form.description} onChange={e => setField('description', e.target.value)}
-            placeholder="Describe the feature and expected localisation behaviour…"
-            style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+        <div className="tg-field"><label className="tg-label">Feature Description</label>
+          <textarea className="tg-input" rows={4} style={{ resize: 'vertical' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Describe expected localisation behaviour, string keys needed, device-specific UI constraints…" />
         </div>
-
-        <button onClick={generate} disabled={loading || !form.feature.trim()}
-          style={{
-            width: '100%', background: !form.feature.trim() || loading ? '#f1f3f4' : GOOGLE_BLUE,
-            color: !form.feature.trim() || loading ? '#bdc1c6' : '#fff',
-            border: 'none', borderRadius: 8, padding: '12px 0',
-            cursor: !form.feature.trim() || loading ? 'default' : 'pointer',
-            fontFamily: 'Google Sans', fontWeight: 600, fontSize: 15,
-          }}>
-          {loading ? '⏳ Generating…' : '✨ Generate Tests'}
+        <button className="btn-generate" onClick={generate} disabled={loading || !form.feature.trim()}>
+          {loading ? <><div className="spinner" style={{ borderTopColor: 'white', width: 14, height: 14 }} />Generating…</> : 'Generate Tests'}
         </button>
       </div>
-
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {messages.length === 0 ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#5f6368' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>✨</div>
-            <div style={{ fontSize: 16, fontFamily: 'Google Sans', marginBottom: 4 }}>AI-Powered Test Generation</div>
-            <div style={{ fontSize: 14, textAlign: 'center', maxWidth: 320, lineHeight: 1.6 }}>
-              Fill in the form and generate localisation test cases for any new Nest feature across all locales.
+      <div className="testgen-results">
+        <div className="tg-result-header">Generated Tests</div>
+        <div className="tg-result-body">
+          {messages.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text2)' }}>
+              <div style={{ fontSize: 44, marginBottom: 14 }}>✨</div>
+              <div style={{ fontFamily: 'Google Sans', fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>AI-Powered Test Generation</div>
+              <div style={{ fontSize: 13, lineHeight: 1.7 }}>Fill in the feature details and click Generate. The agent will create localisation test cases for all selected locales, including string key verification, RTL layout checks, and device-specific UI assertions.</div>
             </div>
-          </div>
+          ) : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Firmware Builds Tab ───────────────────────────────────────────────────────
+const FW_BUILDS = [
+  { id: 'FW-001', device: 'Nest Hub', version: '4.1.0.12-rc3', status: 'in_qa', locales: 10, passRate: '88%', blocker: true },
+  { id: 'FW-002', device: 'Nest Thermostat', version: '6.4.0.3-rc1', status: 'in_qa', locales: 10, passRate: '91%', blocker: true },
+  { id: 'FW-003', device: 'Nest Hub Max', version: '4.1.0.11-rc2', status: 'stable', locales: 10, passRate: '96%', blocker: false },
+  { id: 'FW-004', device: 'Nest Mini', version: '3.2.1.8-rc1', status: 'in_qa', locales: 8, passRate: '94%', blocker: false },
+  { id: 'FW-005', device: 'Nest Cam', version: '2.7.0.5-rc2', status: 'released', locales: 10, passRate: '99%', blocker: false },
+]
+
+function FirmwareTab({ sessionId, userId }) {
+  const [selected, setSelected] = useState(FW_BUILDS[0])
+  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+
+  const statusStyle = s => ({
+    in_qa: { bg: 'var(--g-blue-ll)', color: '#1557b0' },
+    stable: { bg: '#d1fae5', color: '#065f46' },
+    released: { bg: '#d1fae5', color: '#065f46' },
+  }[s] || { bg: '#f1f3f4', color: 'var(--text2)' })
+
+  return (
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="fw-left">
+        <div className="fw-panel-title">Firmware Builds</div>
+        {FW_BUILDS.map(fw => {
+          const ss = statusStyle(fw.status)
+          return (
+            <div key={fw.id} className={`fw-item${selected?.id === fw.id ? ' active' : ''}`} onClick={() => { setSelected(fw); send(`Tell me about ${fw.device} firmware ${fw.version}`) }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
+                <span className="fw-device">{fw.device}</span>
+                {fw.blocker && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8, background: '#fee2e2', color: '#991b1b' }}>Blocker</span>}
+              </div>
+              <div className="fw-version">{fw.version}</div>
+              <div className="fw-badges">
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: ss.bg, color: ss.color }}>{fw.status.replace('_', ' ')}</span>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{fw.passRate} pass</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="fw-right">
+        {selected ? (
+          <>
+            <div className="fw-detail-header">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div className="fw-detail-title">{selected.device} — {selected.version}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {selected.blocker && <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 14, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Release Blocker</span>}
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 14, background: statusStyle(selected.status).bg, color: statusStyle(selected.status).color }}>{selected.status.replace('_', ' ')}</span>
+                </div>
+              </div>
+              <div className="fw-stats-row" style={{ marginTop: 12 }}>
+                {[['Locales Tested', selected.locales], ['Pass Rate', selected.passRate], ['Sprint', 'Sprint 43']].map(([k, v]) => (
+                  <div key={k} className="fw-stat">
+                    <div className="fw-stat-val">{v}</div>
+                    <div className="fw-stat-label">{k}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="agent-feed" style={{ padding: '16px 20px' }}>
+              {messages.length === 0 && (
+                <div className="agent-banner">
+                  <div className="agent-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg></div>
+                  <div>
+                    <div className="at-label">LocaTest Agent</div>
+                    <div className="at-text">Select a build or ask about firmware QA status<span className="cursor" /></div>
+                  </div>
+                </div>
+              )}
+              {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+            </div>
+            <div className="ask-bar">
+              <div className="ask-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg></div>
+              <input className="ask-input" type="text" placeholder={`Ask about ${selected.device} ${selected.version}…`}
+                onKeyDown={e => { if (e.key === 'Enter') { send(e.target.value); e.target.value = '' } }} />
+              <button className="ask-send" onClick={e => { const inp = e.target.previousElementSibling; send(inp.value); inp.value = '' }}>Ask Agent</button>
+            </div>
+          </>
         ) : (
-          <AgentFeed messages={messages} onApprove={() => {}} />
+          <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a firmware build</div></div>
         )}
       </div>
     </div>
   )
 }
 
-// ─── Firmware Builds Tab ──────────────────────────────────────────────────────
-const FIRMWARE_DATA = [
-  { id: 'FW-001', device: 'Nest Hub', version: '4.1.0.12-rc3', status: 'in_qa', locales_tested: 10, pass_rate: '88%', release_blocker: true, sprint: 'Sprint 43' },
-  { id: 'FW-002', device: 'Nest Thermostat', version: '6.4.0.3-rc1', status: 'in_qa', locales_tested: 10, pass_rate: '91%', release_blocker: true, sprint: 'Sprint 43' },
-  { id: 'FW-003', device: 'Nest Hub Max', version: '4.1.0.11-rc2', status: 'stable', locales_tested: 10, pass_rate: '96%', release_blocker: false, sprint: 'Sprint 42' },
-  { id: 'FW-004', device: 'Nest Mini', version: '3.2.1.8-rc1', status: 'in_qa', locales_tested: 8, pass_rate: '94%', release_blocker: false, sprint: 'Sprint 43' },
-  { id: 'FW-005', device: 'Nest Cam', version: '2.7.0.5-rc2', status: 'released', locales_tested: 10, pass_rate: '99%', release_blocker: false, sprint: 'Sprint 42' },
-]
-
-function FirmwareTab({ sessionId, userId }) {
-  const [selected, setSelected] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(false)
-
-  const ask = async (text) => {
-    setMessages(prev => [...prev, { type: 'user', text }])
-    setLoading(true)
-    const resp = await fetch('/run_sse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId, user_id: userId }),
-    })
-    const reader = resp.body.getReader()
-    const dec = new TextDecoder()
-    let buf = '', agentText = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n'); buf = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        try {
-          const ev = JSON.parse(line.slice(5).trim())
-          if (ev.type === 'card') setMessages(prev => [...prev.filter(m => m.type !== 'progress'), { type: 'card', card_type: ev.card_type, data: ev.data }])
-          if (ev.type === 'progress') setMessages(prev => [...prev, { type: 'progress', label: ev.label }])
-          if (ev.type === 'message_delta' && !ev.done) { agentText += ev.text; setMessages(prev => { const l = prev[prev.length - 1]; return l?._streaming ? [...prev.slice(0, -1), { type: 'text', text: agentText, _streaming: true }] : [...prev, { type: 'text', text: agentText, _streaming: true }] }) }
-          if (ev.type === 'message_delta' && ev.done) { setMessages(prev => prev.map(m => m._streaming ? { ...m, _streaming: false } : m)); setLoading(false) }
-        } catch { /* */ }
-      }
-    }
-    setLoading(false)
-  }
-
+// ─── Google Footer ─────────────────────────────────────────────────────────────
+function Footer() {
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <div style={{ width: 280, borderRight: '1px solid #e8eaed', overflowY: 'auto' }}>
-        <div style={{ padding: '14px 16px', fontWeight: 700, fontSize: 15, fontFamily: 'Google Sans', borderBottom: '1px solid #e8eaed' }}>
-          Firmware Builds
-        </div>
-        {FIRMWARE_DATA.map(fw => (
-          <div key={fw.id} onClick={() => { setSelected(fw); ask(`Tell me about ${fw.device} firmware ${fw.version}`) }}
-            style={{
-              padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f3f4',
-              background: selected?.id === fw.id ? '#e8f0fe' : 'transparent',
-              borderLeft: selected?.id === fw.id ? `3px solid ${GOOGLE_BLUE}` : '3px solid transparent',
-            }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>{fw.device}</span>
-              {fw.release_blocker && <Badge label="Blocker" color={GOOGLE_RED} />}
-            </div>
-            <div style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#5f6368', marginBottom: 4 }}>{fw.version}</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Badge label={fw.status.replace('_', ' ')} color={statusColor(fw.status)} />
-              <span style={{ fontSize: 12, color: '#5f6368' }}>{fw.pass_rate}</span>
-            </div>
-          </div>
+    <footer className="g-footer">
+      <span className="gf-copyright">© 2025 Google LLC</span>
+      <div className="gf-links">
+        {['Privacy', 'Terms', 'Help', 'Send Feedback', 'Policies'].map(l => (
+          <span key={l} className="gf-link">{l}</span>
         ))}
       </div>
-
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {selected ? (
-          <>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e8eaed', background: '#f8f9fa' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontFamily: 'Google Sans', fontWeight: 700, fontSize: 16 }}>{selected.device}</div>
-                  <div style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: '#5f6368', marginTop: 2 }}>{selected.version}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Badge label={selected.status.replace('_', ' ')} color={statusColor(selected.status)} />
-                  {selected.release_blocker && <Badge label="Release Blocker" color={GOOGLE_RED} />}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
-                {[['Locales Tested', selected.locales_tested], ['Pass Rate', selected.pass_rate], ['Sprint', selected.sprint]].map(([k, v]) => (
-                  <div key={k}>
-                    <span style={{ fontSize: 12, color: '#5f6368' }}>{k}: </span>
-                    <strong>{v}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <AgentFeed messages={messages} onApprove={() => {}} />
-            <ChatBar onSend={ask} loading={loading} placeholder={`Ask about ${selected.device} ${selected.version}…`} />
-          </>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#5f6368' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📱</div>
-            <div style={{ fontSize: 16, fontFamily: 'Google Sans' }}>Select a firmware build</div>
-          </div>
-        )}
+      <div className="gf-right">
+        <svg width="14" height="14" viewBox="0 0 24 24">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        <span className="gf-logo-text">Google LocaTest</span>
       </div>
-    </div>
+    </footer>
   )
 }
 
@@ -1420,20 +1356,28 @@ export default function App() {
   const sessionId = useRef(Math.random().toString(36).slice(2)).current
   const userId = 'default_user'
 
+  // Shared agent for bottom chat bar
+  const sharedAgent = useAgent(sessionId, userId)
+
   const tabProps = { sessionId, userId }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'Roboto, Google Sans, sans-serif' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Navbar />
-      <SprintBar onTabChange={setTab} />
+      <SessionBar activeTab={tab} onTabChange={setTab} />
       <TabNav active={tab} onChange={setTab} />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'workspace'   && <WorkspaceTab {...tabProps} />}
-        {tab === 'simulation'  && <SimulationTab {...tabProps} />}
-        {tab === 'rca'         && <RcaTab {...tabProps} />}
-        {tab === 'testgen'     && <TestGenTab {...tabProps} />}
-        {tab === 'firmware'    && <FirmwareTab {...tabProps} />}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          {tab === 'workspace'  && <WorkspaceTab {...tabProps} />}
+          {tab === 'simulation' && <SimulationTab {...tabProps} />}
+          {tab === 'rca'        && <RcaTab {...tabProps} />}
+          {tab === 'testgen'    && <TestGenTab {...tabProps} />}
+          {tab === 'firmware'   && <FirmwareTab {...tabProps} />}
+        </div>
+        {/* Global bottom chat always visible */}
+        <BottomChat onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} />
       </div>
+      <Footer />
     </div>
   )
 }
