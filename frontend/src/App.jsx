@@ -367,45 +367,55 @@ function FeedReplyBar({ send, loading, placeholder }) {
 }
 
 // ─── Nest Device Screenshot Mock ──────────────────────────────────────────────
-const NEST_WIDGETS = {
-  greeting: { icon: '🌅', label: 'Morning Greeting', keys: ['greeting', 'guten', 'mañana'] },
-  weather:  { icon: '🌤', label: 'Weather',          keys: ['weather', 'temp', 'clima'] },
-  calendar: { icon: '📅', label: 'Calendar',         keys: ['calendar', 'today', 'today'] },
-  assistant:{ icon: '🎙', label: 'Assistant',        keys: ['assistant', 'hey', 'help'] },
-}
-function NestDeviceMock({ shot, locale }) {
-  const { screen, actual, expected, key } = shot
+// Accepts both step format { actual, expected, key, screen }
+// and screenshots format  { wrong, right, key, label, screen }
+// variant: 'fail' (default, red) | 'pass' (green, shows expected/right text)
+function NestDeviceMock({ shot, locale, variant = 'fail', size = 'sm' }) {
+  const key    = shot.key
+  const screen = shot.screen || shot.label || ''
+  // normalise field names
+  const wrongText    = (shot.actual  || shot.wrong  || '').replace(/"/g, '')
+  const correctText  = (shot.expected || shot.right  || '').replace(/"/g, '')
+  const displayText  = variant === 'pass' ? correctText : wrongText
+
   const isGreeting = /greeting|morning|afternoon|evening/i.test(screen + key)
-  const isWeather  = /weather|clima|temp/i.test(screen + key)
+  const isWeather  = /weather|clima|temp|rtl_layout|layout/i.test(screen + key)
   const isCalendar = /calendar|today|date/i.test(screen + key)
-  const widgetIcon = isGreeting ? '🌅' : isWeather ? '🌤' : isCalendar ? '📅' : '📱'
+  const isThermostat = /thermostat|temp_unit|temp_label|temp_display/i.test(screen + key)
+  const widgetIcon = isGreeting ? '🌅' : isCalendar ? '📅' : isThermostat ? '🌡' : isWeather ? '🌤' : '📱'
+
+  const isFail  = variant === 'fail'
+  const accent  = isFail ? 'rgba(234,67,53,' : 'rgba(52,168,83,'
+  const textClr = isFail ? '#ff8a80' : '#81c995'
+  const badgeBg = isFail ? 'rgba(234,67,53,.85)' : 'rgba(52,168,83,.8)'
+  const badgeText = isFail ? `TRANSLATION MISSING · ${key}` : `✓ Expected · ${key}`
 
   return (
-    <div className="nest-mock">
+    <div className={`nest-mock${size === 'lg' ? ' nest-mock-lg' : ''}`}>
       <div className="nm-topbar">
-        <span className="nm-device-label">Nest Hub · pt-{locale?.toUpperCase() || 'BR'}</span>
-        <span className="nm-fail-badge">TRANSLATION MISSING · {key}</span>
+        <span className="nm-device-label">Nest Hub · {locale || 'pt-BR'}</span>
+        <span className="nm-fail-badge" style={{ background: badgeBg }}>{badgeText}</span>
       </div>
-      {/* Ambient display */}
-      <div className="nm-screen">
-        {/* Clock */}
+      <div className="nm-screen" style={{ background: isFail
+        ? 'linear-gradient(160deg,#0d1b2a 0%,#1a2840 40%,#0a1628 100%)'
+        : 'linear-gradient(160deg,#0d1f12 0%,#122b1a 40%,#0a1810 100%)' }}>
         <div className="nm-clock">
           <span className="nm-time">09:41</span>
-          <span className="nm-date">Friday, May 29</span>
+          <span className="nm-date">Friday, May 29 · {locale || 'pt-BR'}</span>
         </div>
-        {/* Failing widget */}
-        <div className="nm-widget">
+        <div className="nm-widget" style={{ background: `${accent}.12)`, border: `1px solid ${accent}.35)` }}>
           <span className="nm-widget-icon">{widgetIcon}</span>
           <div className="nm-widget-content">
-            <div className="nm-actual-text">{actual.replace(/"/g, '')}</div>
-            <div className="nm-fail-underline" />
-            <div className="nm-expected-row">
-              <span className="nm-expected-label">Expected →</span>
-              <span className="nm-expected-val">{expected.replace(/"/g, '')}</span>
-            </div>
+            <div className="nm-actual-text" style={{ color: textClr }}>{displayText}</div>
+            <div className="nm-fail-underline" style={{ background: `${accent}.5)` }} />
+            {isFail && correctText && (
+              <div className="nm-expected-row">
+                <span className="nm-expected-label">Expected →</span>
+                <span className="nm-expected-val">{correctText}</span>
+              </div>
+            )}
           </div>
         </div>
-        {/* Google Home dots */}
         <div className="nm-dots">
           {[0,1,2,3].map(i => <span key={i} className={`nm-dot ${i===0?'nm-dot-active':''}`} />)}
         </div>
@@ -1426,50 +1436,26 @@ function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, set
                 ) : (
                   <>
                     <div style={{ fontFamily: 'Google Sans', fontSize: 14, fontWeight: 600, color: 'var(--text2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '.5px' }}>Failure Screenshots · {selected.id}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                       {scenarioData.screenshots.map((ss, idx) => (
-                        <div key={idx} style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border2)', background: 'var(--surface)' }}>
-                          <div style={{ background: '#1e1e2e', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div>
-                              <span style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#8ab4f8' }}>📸 {ss.label}</span>
-                              <span style={{ marginLeft: 12, fontSize: 11, color: '#9aa0a6' }}>{ss.screen}</span>
-                            </div>
-                            <span style={{ fontFamily: 'Roboto Mono', fontSize: 10, color: '#f28b82', background: 'rgba(234,67,53,.15)', padding: '2px 8px', borderRadius: 5 }}>key: {ss.key}</span>
+                        <div key={idx}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', marginBottom: 10, display: 'flex', align: 'center', gap: 8 }}>
+                            <span style={{ fontFamily: 'Roboto Mono', color: 'var(--g-blue)' }}>📸 {ss.label || ss.screen}</span>
+                            <span style={{ color: 'var(--text3)' }}>·</span>
+                            <span style={{ fontFamily: 'Roboto Mono', fontSize: 10, background: 'var(--g-blue-ll)', color: '#1557b0', padding: '1px 6px', borderRadius: 4 }}>{ss.key}</span>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: '#303134' }}>
-                            <div style={{ background: '#1a1a2e', padding: 16 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f87171', display: 'inline-block' }} />Actual (Device Screen)
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g-red)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--g-red)', display: 'inline-block' }} />Actual — Device Screen
                               </div>
-                              <div style={{ background: '#0f172a', borderRadius: 10, padding: 16, border: '1px solid rgba(234,67,53,.3)', minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, fontFamily: 'Roboto Mono' }}>Nest Hub · {selected.locale}</div>
-                                  <div style={{ background: '#1e293b', borderRadius: 6, padding: '8px 18px', border: '1px solid rgba(234,67,53,.5)' }}>
-                                    <div style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: '#fca5a5' }}>{ss.wrong}</div>
-                                    <div style={{ fontSize: 9, color: '#f87171', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.4px' }}>en-US fallback</div>
-                                  </div>
-                                </div>
-                              </div>
-                              <div style={{ marginTop: 8, fontFamily: 'Roboto Mono', fontSize: 10, color: '#f28b82', background: 'rgba(234,67,53,.1)', padding: '4px 8px', borderRadius: 4 }}>
-                                ✗ Translation missing — showing fallback
-                              </div>
+                              <NestDeviceMock shot={ss} locale={selected.locale} variant="fail" size="lg" />
                             </div>
-                            <div style={{ background: '#0d1b0d', padding: 16 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />Expected (from spec)
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--g-green)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--g-green)', display: 'inline-block' }} />Expected — From Spec
                               </div>
-                              <div style={{ background: '#0a1a0a', borderRadius: 10, padding: 16, border: '1px solid rgba(52,168,83,.3)', minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <div style={{ textAlign: 'center' }}>
-                                  <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontFamily: 'Roboto Mono' }}>Expected · {selected.locale}</div>
-                                  <div style={{ background: '#0f2d0f', borderRadius: 6, padding: '8px 18px', border: '1px solid rgba(52,168,83,.5)' }}>
-                                    <div style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: '#86efac' }}>{ss.right}</div>
-                                    <div style={{ fontSize: 9, color: '#4ade80', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.4px' }}>correct translation</div>
-                                  </div>
-                                </div>
-                              </div>
-                              <div style={{ marginTop: 8, fontFamily: 'Roboto Mono', fontSize: 10, color: '#4ade80', background: 'rgba(52,168,83,.1)', padding: '4px 8px', borderRadius: 4 }}>
-                                ✓ Expected from locale spec
-                              </div>
+                              <NestDeviceMock shot={ss} locale={selected.locale} variant="pass" size="lg" />
                             </div>
                           </div>
                         </div>

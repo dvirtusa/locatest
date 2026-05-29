@@ -266,6 +266,15 @@ body{font-family:'Roboto','Google Sans',sans-serif;background:var(--bg);color:va
 .nm-dots{display:flex;gap:4px;position:absolute;bottom:8px;right:10px}
 .nm-dot{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.2)}
 .nm-dot-active{background:rgba(255,255,255,.7)}
+/* Large variant — Screenshots tab */
+.nest-mock-lg .nm-screen{min-height:140px;padding:14px 16px}
+.nest-mock-lg .nm-time{font-size:36px}
+.nest-mock-lg .nm-date{font-size:11px}
+.nest-mock-lg .nm-widget{padding:8px 12px;gap:8px}
+.nest-mock-lg .nm-widget-icon{font-size:20px}
+.nest-mock-lg .nm-actual-text{font-size:16px}
+.nest-mock-lg .nm-expected-val{font-size:12px}
+.nest-mock-lg .nm-fail-badge{font-size:9px;padding:2px 7px}
 .debug-inspector{flex:1;padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;min-height:0}
 .di-section{background:#f8fafc;border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .dis-header{padding:10px 14px;background:var(--dark);display:flex;align-items:center;justify-content:space-between}
