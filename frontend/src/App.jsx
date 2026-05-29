@@ -331,6 +331,35 @@ function AgentMsg({ msg, onApprove, onNavigate }) {
   return null
 }
 
+// ─── Inline reply bar ──────────────────────────────────────────────────────────
+function FeedReplyBar({ send, loading, placeholder }) {
+  const [input, setInput] = useState('')
+  const submit = () => {
+    const t = input.trim()
+    if (!t || loading) return
+    send(t)
+    setInput('')
+  }
+  return (
+    <div className="feed-reply-bar">
+      <input
+        className="frb-input"
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+        placeholder={placeholder || 'Reply to agent…'}
+        disabled={loading}
+      />
+      <button className="frb-send" onClick={submit} disabled={loading || !input.trim()}>
+        {loading
+          ? <div className="spinner" style={{ width: 12, height: 12, borderTopColor: 'white' }} />
+          : <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        }
+      </button>
+    </div>
+  )
+}
+
 // ─── Card renderers ────────────────────────────────────────────────────────────
 function AgentCard({ type, data, onApprove, onNavigate }) {
   switch (type) {
@@ -588,7 +617,7 @@ function HilQCard({ data, onApprove, onNavigate }) {
 }
 
 function GenCard({ data }) {
-  const tests = data.tests || data.generated || []
+  const tests = data.tests || data.generated || data.generated_tests || []
   return (
     <div className="phase-block">
       <div className="phase-header done-ph">
@@ -872,6 +901,7 @@ function WorkspaceTab({ sessionId, userId, onTabChange, setChipContext }) {
         {messages.map((msg, i) => (
           <AgentMsg key={i} msg={msg} onApprove={(issue) => setHilIssue(issue)} onNavigate={onTabChange} />
         ))}
+        <FeedReplyBar send={send} loading={loading} placeholder="Reply to agent about this QA session…" />
       </main>
 
       {hilIssue && <HilOverlay issue={hilIssue} onClose={() => setHilIssue(null)} />}
@@ -1285,8 +1315,16 @@ function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, set
                       ))}
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+            {messages.length > 0 && (
+              <div className="sim-agent-panel">
+                <div className="sap-label">Agent Response</div>
+                <div className="sap-messages">
                   {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
                 </div>
+                <FeedReplyBar send={send} loading={loading} placeholder="Reply to agent…" />
               </div>
             )}
 
@@ -1430,6 +1468,7 @@ function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, set
                     </div>
                   ))}
                 </div>
+                {messages.length > 0 && <FeedReplyBar send={send} loading={loading} placeholder="Reply to agent…" />}
               </div>
             )}
 
@@ -1713,9 +1752,12 @@ function RcaTab({ sessionId, userId, onTabChange, selectedIssueId, setSelectedIs
 
         {/* Agent response panel — only visible when send() produces messages */}
         {messages.length > 0 && (
-          <div style={{ borderTop: '1px solid var(--border2)', background: '#f8f9fa', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontFamily: 'Google Sans', fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>Agent Response</div>
-            {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+          <div style={{ borderTop: '1px solid var(--border2)', background: '#f8f9fa', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontFamily: 'Google Sans', fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.5px', padding: '12px 24px 4px' }}>Agent Response</div>
+            <div style={{ padding: '0 24px 4px', maxHeight: 200, overflowY: 'auto' }}>
+              {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+            </div>
+            <FeedReplyBar send={send} loading={loading} placeholder="Reply to agent about this issue…" />
           </div>
         )}
       </div>
@@ -1838,7 +1880,8 @@ const TEST_SUITES = [
 ]
 
 function TestGenTab({ sessionId, userId }) {
-  const { messages, loading, send } = useAgent(sessionId, userId)
+  const genSessionId = useRef(`${sessionId}-tg`).current
+  const { messages, loading, send } = useAgent(genSessionId, userId)
   const [mode, setMode] = useState('generate')
   const [form, setForm] = useState({ feature: '', device: 'Nest Hub', suite: 'Home Screen & Ambient Display', locales: 'all', priority: 'P1', description: '' })
   const [selectedSuite, setSelectedSuite] = useState(TEST_SUITES[0])
@@ -1935,8 +1978,15 @@ function TestGenTab({ sessionId, userId }) {
                   <div style={{ fontFamily: 'Google Sans', fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>AI-Powered Test Generation</div>
                   <div style={{ fontSize: 13, lineHeight: 1.7 }}>Fill in the feature details and click Generate. The agent will create localisation test cases for all selected locales, including string key verification, RTL layout checks, and device-specific UI assertions.</div>
                 </div>
-              ) : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+              ) : (
+                <>
+                  {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+                </>
+              )}
             </div>
+            {messages.length > 0 && (
+              <FeedReplyBar send={send} loading={loading} placeholder="Ask agent to refine, add locales, or generate more…" />
+            )}
           </>
         ) : selectedSuite ? (
           <>
@@ -2259,7 +2309,7 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
             </div>
 
             {/* Agent feed */}
-            <div className="agent-feed" style={{ padding: '16px 20px', minHeight: 120 }}>
+            <div className="agent-feed" style={{ padding: '16px 20px', minHeight: 80 }}>
               {messages.length === 0 && (
                 <div className="agent-banner">
                   <div className="agent-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg></div>
@@ -2271,6 +2321,7 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
               )}
               {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
             </div>
+            <FeedReplyBar send={send} loading={loading} placeholder="Ask agent about this build…" />
           </>
         ) : (
           <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a build</div></div>

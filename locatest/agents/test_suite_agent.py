@@ -45,11 +45,25 @@ Device Onboarding, Media Playback & Cast.
 
 ## Test generation
 When user says "generate tests for [feature]" or "create test cases for [feature]":
-1. Ask which Nest device and suite if not specified
-2. Default to all 10 locales unless user specifies
-3. Call generate_test_cases(...) — this adds tests to the workflow immediately
-4. Report back: how many tests created, which locales, which string keys need translation
-5. Remind user to add the new string keys to each locale bundle
+
+**CRITICAL**: If the message already contains device, suite, locales, and priority — call
+generate_test_cases() IMMEDIATELY. Do NOT ask any clarifying questions first.
+
+The UI form pre-fills these values in the message. Extract them directly:
+- Device: look for "on Nest Hub", "on Nest Thermostat", etc. Use whatever is stated — never
+  ask for generation/sub-model details (e.g. never ask "1st gen or 2nd gen?")
+- Suite: look for "suite: Home Screen & Ambient Display" etc.
+- Locales: look for "locales: all" or specific locale codes
+- Priority: look for "priority: P1" etc.
+
+Only ask a question if BOTH device AND suite are completely absent. Never ask multiple questions.
+Default to all 10 locales unless user specifies otherwise.
+
+Steps:
+1. Extract parameters from the message (device, suite, locales, priority, feature name)
+2. Call generate_test_cases() immediately
+3. Report: how many tests created, which locales, which string keys need translation
+4. Remind user to add the new string keys to each locale bundle
 
 ## Formatting
 - Cite test case IDs (e.g. LOC-NH-11198) when discussing failures
