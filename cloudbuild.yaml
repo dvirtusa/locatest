@@ -2,11 +2,9 @@ substitutions:
   _SERVICE_NAME: locatest-agent
   _REGION: us-central1
   _PROJECT_ID: gcp-poc-investment-219973-ce
-  _IMAGE: gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}
   _GEMINI_MODEL: gemini-2.5-flash-preview-05-20
   _SA: cloud-run@gcp-poc-investment-219973-ce.iam.gserviceaccount.com
-  _VPC_CONNECTOR: projects/${_PROJECT_ID}/locations/${_REGION}/connectors/nspoke-poc-investment-us-central1
-  _SUBNET: projects/${_PROJECT_ID}/regions/${_REGION}/subnetworks/internal-subnet-1
+  _SUBNET: projects/gcp-poc-investment-219973-ce/regions/us-central1/subnetworks/internal-subnet-1
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -20,22 +18,36 @@ steps:
       - -c
       - |
         pip install --quiet -r requirements.txt pytest pytest-asyncio &&
-        GOOGLE_CLOUD_PROJECT=${_PROJECT_ID} GOOGLE_GENAI_USE_VERTEXAI=FALSE
+        GOOGLE_CLOUD_PROJECT=${_PROJECT_ID} GOOGLE_GENAI_USE_VERTEXAI=FALSE \
         python -m pytest tests/ -v --tb=short || true
 
-  # Build and push container image
+  # Build container image
   - name: gcr.io/cloud-builders/docker
     id: build-image
     args:
       - build
-      - --tag=${_IMAGE}:${SHORT_SHA}
-      - --tag=${_IMAGE}:latest
+      - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
       - .
+    waitFor:
+      - backend-tests
+
+  # Push image
+  - name: gcr.io/cloud-builders/docker
+    id: push-sha
+    args:
+      - push
+      - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+    waitFor:
+      - build-image
 
   - name: gcr.io/cloud-builders/docker
-    id: push-image
-    args: [push, --all-tags, ${_IMAGE}]
-    waitFor: [build-image]
+    id: push-latest
+    args:
+      - push
+      - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
+    waitFor:
+      - build-image
 
   # Deploy to Cloud Run
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -45,7 +57,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE_NAME}
-      - --image=${_IMAGE}:${SHORT_SHA}
+      - --image=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
       - --region=${_REGION}
       - --platform=managed
       - --service-account=${_SA}
@@ -58,8 +70,9 @@ steps:
       - --set-env-vars=GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,GEMINI_MODEL=${_GEMINI_MODEL},STATIC_FILES_DIR=static
       - --vpc-egress=private-ranges-only
       - --subnet=${_SUBNET}
-    waitFor: [push-image]
+    waitFor:
+      - push-sha
 
 images:
-  - ${_IMAGE}:${SHORT_SHA}
-  - ${_IMAGE}:latest
+  - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+  - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
