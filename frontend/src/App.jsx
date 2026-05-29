@@ -174,11 +174,23 @@ const CHIPS_BY_TAB = {
 }
 
 const CHIP_MESSAGES_BY_TAB = {
+  workspace: {
+    'Show dashboard': 'Show the LocaTest QA dashboard for Sprint 43 — total test count, pass rate, P0 release blockers, automation coverage percentage, and all firmware builds currently in QA.',
+    'List P0 failures': 'List all P0 release blocker failures in Sprint 43 for Nest Hub 4.1.0.12-rc3 and Thermostat 6.4.0.3-rc1. Include test IDs (LOC-NH-11198, LOC-NT-11201, etc.), failing locale, device, expected vs actual values.',
+    'PT-BR coverage': 'Show PT-BR locale test coverage for Sprint 43 Nest Hub 4.1.0.12-rc3: how many tests ran, passed, failed, automation percentage, and which suites have PT-BR failures. Include the Home Screen & Ambient Display suite breakdown.',
+    'Draft Buganizer ticket': 'Draft a Buganizer issue for the critical PT-BR Nest Hub home screen failures: test cases LOC-NH-11198, LOC-NH-11199, LOC-NH-11200. Root cause: missing hs_greeting_morning, hs_weather_label, hs_calendar_today in pt-BR.strings Sprint 43 bundle. Severity S2, Priority P0.',
+  },
   runtests: {
     'Run PT-BR regression suite': 'Run the PT-BR Home Screen regression suite for Nest Hub Sprint 43 firmware (4.1.0.12-rc3) across all PT-BR string key scenarios',
     'Show HIL approval queue': 'Show the HIL approval queue — which Sprint 43 test failures are currently blocked awaiting human-in-the-loop decision?',
     'Retry failing tests with patch': 'Retry the failing PT-BR test scenarios after applying the proposed fix: add hs_greeting_morning, hs_weather_label, and hs_calendar_today to pt-BR.strings',
     'Other locales affected?': 'Which locales other than PT-BR are affected by missing home screen string keys in the Sprint 43 Nest Hub build? Check ar-SA, de-DE, fr-FR, ja-JP, ko-KR across the same suite.',
+  },
+  rca: {
+    'Generate RCA report': 'Generate an RCA report for the PT-BR Nest Hub home screen failures (b/337821049): identify root cause, affected string keys, and proposed fix for Sprint 43.',
+    'Approve & file issue': 'Approve and file the current RCA draft to Buganizer for b/337821049 — PT-BR Nest Hub Sprint 43 home screen string failures.',
+    'Compare screenshots': 'Compare the actual vs expected screenshots for the PT-BR home screen failures: hs_greeting_morning shows "Good morning" instead of "Bom dia".',
+    'Check bundle diff': 'Show the pt-BR.strings bundle diff for Sprint 43 — which string keys are missing from the PT-BR bundle that exist in en-US.strings?',
   },
 }
 
@@ -748,26 +760,51 @@ const INIT_WORKSPACE = [
   },
 ]
 
-function WorkspaceTab({ sessionId, userId, onTabChange }) {
+const WORKSPACE_SESSION_CONTEXT = 'Session: Nest Hub 4.1.0.12-rc3 · Sprint 43 regression · 2 P0 blockers (LOC-NH-11198 PT-BR greeting strings, LOC-NT-11201 AR-SA RTL layout). 1,089/1,247 tests run, 31 failing, 3 HIL pending.'
+
+const SOURCES = [
+  {
+    icon: '📱', name: 'Nest Hub 4.1.0.12-rc3', desc: 'QA Build · Active firmware · Sprint 43', badge: 'Active Build', badgeClass: 'blue',
+    query: 'Show test execution summary for Nest Hub firmware 4.1.0.12-rc3 in Sprint 43: total tests, pass rate, failures by locale, P0 release blocker status.',
+  },
+  {
+    icon: '🧪', name: 'pt-br-regression-suite.yaml', desc: '1,247 scenarios · Home, Assistant, Settings', badge: 'Loaded', badgeClass: 'green',
+    query: 'Show PT-BR regression suite results for Sprint 43: how many of the 1,247 scenarios passed, failed, and are pending? List top PT-BR failures by priority.',
+  },
+  {
+    icon: '🌍', name: 'locale-configs.json', desc: '10 locales · 18,000 string keys', badge: 'Loaded', badgeClass: 'green',
+    query: 'Show locale coverage report for all 10 locales in Sprint 43 Nest Hub firmware. Compare health scores — which locales have the most failures?',
+  },
+  {
+    icon: '📋', name: 'baseline-sprint-42.json', desc: 'Previous passing run · Sprint 42', badge: 'Baseline', badgeClass: 'gray',
+    query: 'Compare Sprint 43 test results against the Sprint 42 baseline for Nest Hub. What new failures were introduced? Which cases that passed in Sprint 42 are now failing?',
+  },
+  {
+    icon: '📄', name: 'sprint-43-release-notes.md', desc: 'Changelog · 14 new keys added', badge: 'Context', badgeClass: 'gray',
+    query: 'Summarize Sprint 43 release notes: which of the 14 new string keys are at risk for localization failures? Which locales may be missing translations for the new keys?',
+  },
+]
+
+function WorkspaceTab({ sessionId, userId, onTabChange, setChipContext }) {
   const { messages, loading, send, lastText, setMessages } = useAgent(sessionId, userId)
   const [hilIssue, setHilIssue] = useState(null)
+  const [activeSourceIdx, setActiveSourceIdx] = useState(0)
   const feedRef = useRef(null)
 
   useEffect(() => {
     setMessages(INIT_WORKSPACE)
+    setChipContext?.(WORKSPACE_SESSION_CONTEXT)
+    return () => setChipContext?.(null)
   }, [])
 
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
   }, [messages])
 
-  const SOURCES = [
-    { icon: '📱', name: 'Nest Hub 4.1.0.12-rc3', desc: 'QA Build · Active firmware · Sprint 43', badge: 'Active Build', badgeClass: 'blue', active: true },
-    { icon: '🧪', name: 'pt-br-regression-suite.yaml', desc: '1,247 scenarios · Home, Assistant, Settings', badge: 'Loaded', badgeClass: 'green' },
-    { icon: '🌍', name: 'locale-configs.json', desc: '10 locales · 18,000 string keys', badge: 'Loaded', badgeClass: 'green' },
-    { icon: '📋', name: 'baseline-sprint-42.json', desc: 'Previous passing run · Sprint 42', badge: 'Baseline', badgeClass: 'gray' },
-    { icon: '📄', name: 'sprint-43-release-notes.md', desc: 'Changelog · 14 new keys added', badge: 'Context', badgeClass: 'gray' },
-  ]
+  const handleSourceClick = (idx) => {
+    setActiveSourceIdx(idx)
+    send(SOURCES[idx].query)
+  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -775,21 +812,21 @@ function WorkspaceTab({ sessionId, userId, onTabChange }) {
       <aside className="sources-pane">
         <div className="sp-header">
           <span className="sp-title">Build Sources</span>
-          <div className="sp-add" onClick={() => send('Load additional locale configurations or test artifacts')}>
+          <div className="sp-add" onClick={() => send('What additional test suites or locale configuration files are available to load for Sprint 43 Nest Hub QA? List options.')}>
             <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
             Add
           </div>
         </div>
         <div className="sources-list">
-          {SOURCES.map(s => (
-            <div key={s.name} className={`source-card${s.active ? ' active' : ''}`}>
+          {SOURCES.map((s, idx) => (
+            <div key={s.name} className={`source-card${activeSourceIdx === idx ? ' active' : ''}`} onClick={() => handleSourceClick(idx)} style={{ cursor: 'pointer' }}>
               <div className="sc-top">
-                <div className="sc-icon" style={{ background: s.active ? '#e8f0fe' : '#f8fafc' }}>{s.icon}</div>
+                <div className="sc-icon" style={{ background: activeSourceIdx === idx ? '#e8f0fe' : '#f8fafc' }}>{s.icon}</div>
                 <div className="sc-body">
                   <div className="sc-name">{s.name}</div>
                   <div className="sc-desc">{s.desc}</div>
                 </div>
-                <div style={{ fontSize: 16, color: 'var(--text3)', cursor: 'pointer' }}>⋯</div>
+                <div style={{ fontSize: 16, color: activeSourceIdx === idx ? 'var(--g-blue)' : 'var(--text3)', cursor: 'pointer' }}>›</div>
               </div>
               <span className={`sc-badge ${s.badgeClass}`}>{s.badge}</span>
             </div>
@@ -798,11 +835,21 @@ function WorkspaceTab({ sessionId, userId, onTabChange }) {
         <div style={{ padding: '0 10px 10px' }}>
           <div className="sp-stats">
             <div className="ss-title">Session Stats</div>
-            <div className="ss-row"><span className="ss-label">Tests Run</span><span className="ss-val" style={{ color: 'var(--g-blue)' }}>1,089</span></div>
-            <div className="ss-row"><span className="ss-label">Passing</span><span className="ss-val" style={{ color: 'var(--g-green)' }}>1,058</span></div>
-            <div className="ss-row"><span className="ss-label">Failing</span><span className="ss-val" style={{ color: 'var(--g-red)' }}>31</span></div>
-            <div className="ss-row"><span className="ss-label">HIL Required</span><span className="ss-val" style={{ color: 'var(--hil)' }}>3</span></div>
-            <div className="ss-row"><span className="ss-label">Remaining</span><span className="ss-val" style={{ color: 'var(--text2)' }}>158</span></div>
+            <div className="ss-row" style={{ cursor: 'pointer' }} onClick={() => onTabChange('runtests')}>
+              <span className="ss-label">Tests Run</span><span className="ss-val" style={{ color: 'var(--g-blue)' }}>1,089 →</span>
+            </div>
+            <div className="ss-row" style={{ cursor: 'pointer' }} onClick={() => onTabChange('runtests')}>
+              <span className="ss-label">Passing</span><span className="ss-val" style={{ color: 'var(--g-green)' }}>1,058</span>
+            </div>
+            <div className="ss-row" style={{ cursor: 'pointer' }} onClick={() => send('List all 31 failing test cases in Sprint 43 Nest Hub 4.1.0.12-rc3 by priority. Include test ID, locale, failure description.')}>
+              <span className="ss-label">Failing</span><span className="ss-val" style={{ color: 'var(--g-red)' }}>31 →</span>
+            </div>
+            <div className="ss-row" style={{ cursor: 'pointer' }} onClick={() => send('Show the HIL approval queue for Sprint 43 — which test failures require human-in-the-loop decision before issue filing?')}>
+              <span className="ss-label">HIL Required</span><span className="ss-val" style={{ color: 'var(--hil)' }}>3 →</span>
+            </div>
+            <div className="ss-row">
+              <span className="ss-label">Remaining</span><span className="ss-val" style={{ color: 'var(--text2)' }}>158</span>
+            </div>
           </div>
         </div>
       </aside>
