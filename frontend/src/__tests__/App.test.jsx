@@ -37,10 +37,10 @@ describe('App', () => {
     render(<App />)
     // Each tab label appears once in TabNav and once in SprintBar pills
     expect(screen.getAllByText('Workspace').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Simulation').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Run Tests').length).toBeGreaterThan(0)
     expect(screen.getAllByText('RCA & Issues').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Test Generation').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Firmware Builds').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Test Generator').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Builds').length).toBeGreaterThan(0)
   })
 
   it('shows sprint bar with release blocker badge', () => {
@@ -57,30 +57,30 @@ describe('App', () => {
     expect(screen.getByText(/LOC-NT-11201/i)).toBeInTheDocument()
   })
 
-  it('switches to Simulation tab on click', () => {
+  it('switches to Run Tests tab on click', () => {
     render(<App />)
-    fireEvent.click(screen.getAllByText('Simulation')[0])
+    fireEvent.click(screen.getAllByText('Run Tests')[0])
     expect(screen.getByText('PT-BR Regression')).toBeInTheDocument()
     expect(screen.getByText('AR-SA Smoke')).toBeInTheDocument()
   })
 
-  it('switches to Test Generation tab and shows form', () => {
+  it('switches to Test Generator tab and shows form', () => {
     render(<App />)
-    fireEvent.click(screen.getAllByText('Test Generation')[0])
+    fireEvent.click(screen.getAllByText('Test Generator')[0])
     expect(screen.getByText('Generate Test Cases')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/Night Mode/i)).toBeInTheDocument()
   })
 
   it('generate button disabled when feature name is empty', () => {
     render(<App />)
-    fireEvent.click(screen.getAllByText('Test Generation')[0])
+    fireEvent.click(screen.getAllByText('Test Generator')[0])
     const btn = screen.getByText(/Generate Tests/i)
     expect(btn).toBeDisabled()
   })
 
-  it('switches to Firmware Builds tab', () => {
+  it('switches to Builds tab', () => {
     render(<App />)
-    fireEvent.click(screen.getAllByText('Firmware Builds')[0])
+    fireEvent.click(screen.getAllByText('Builds')[0])
     expect(screen.getByText('Nest Hub')).toBeInTheDocument()
     expect(screen.getByText('Nest Thermostat')).toBeInTheDocument()
   })

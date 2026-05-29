@@ -99,12 +99,13 @@ function Navbar() {
 }
 
 // ─── Session bar ───────────────────────────────────────────────────────────────
-const WF_STAGES = ['Intake', 'Analysis', 'Simulation', 'HIL Review', 'Issue Filing', 'Complete']
-const TAB_TO_STAGE = { workspace: 1, simulation: 2, rca: 4, testgen: 1, firmware: 1 }
-const STAGE_TO_TAB = { 2: 'simulation', 3: 'rca', 4: 'rca' }
+const WF_STAGES = ['Intake', 'Analysis', 'Test Run', 'HIL Review', 'Issue Filing', 'Complete']
+const TAB_TO_STAGE = { workspace: 1, runtests: 2, rca: 4, testgen: 1, builds: 1 }
+const STAGE_TO_TAB = { 2: 'runtests', 3: 'rca', 4: 'rca' }
 
 function SessionBar({ activeTab, onTabChange }) {
   const activeStage = TAB_TO_STAGE[activeTab] ?? 1
+  const [paused, setPaused] = useState(false)
   return (
     <div className="session-bar">
       <div className="sb-build">
@@ -134,7 +135,9 @@ function SessionBar({ activeTab, onTabChange }) {
           <div className="ai-dot" />
           <span className="agent-label">Agent Active · 89 new failures · Sprint 43</span>
         </div>
-        <button className="sb-btn">⏸ Pause Agent</button>
+        <button className="sb-btn" onClick={() => setPaused(p => !p)}>
+          {paused ? '▶ Resume Agent' : '⏸ Pause Agent'}
+        </button>
       </div>
     </div>
   )
@@ -142,11 +145,11 @@ function SessionBar({ activeTab, onTabChange }) {
 
 // ─── Tab nav ───────────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'workspace', label: 'Workspace' },
-  { id: 'simulation', label: 'Simulation' },
-  { id: 'rca', label: 'RCA & Issues' },
-  { id: 'testgen', label: 'Test Generation' },
-  { id: 'firmware', label: 'Firmware Builds' },
+  { id: 'workspace',  label: 'Workspace' },
+  { id: 'testgen',    label: 'Test Generator' },
+  { id: 'runtests',   label: 'Run Tests' },
+  { id: 'rca',        label: 'RCA & Issues' },
+  { id: 'builds',     label: 'Builds' },
 ]
 
 function TabNav({ active, onChange }) {
@@ -164,10 +167,10 @@ function TabNav({ active, onChange }) {
 // ─── Bottom chat bar ───────────────────────────────────────────────────────────
 const CHIPS_BY_TAB = {
   workspace:  ['Show dashboard', 'List P0 failures', 'PT-BR coverage', 'Draft Buganizer ticket'],
-  simulation: ['Run PT-BR regression', 'Show HIL queue', 'Retry with patch', 'Other locales affected?'],
+  runtests:   ['Run PT-BR regression', 'Show HIL queue', 'Retry with patch', 'Other locales affected?'],
   rca:        ['Generate RCA report', 'Approve & file issue', 'Compare screenshots', 'Check bundle diff'],
   testgen:    ['Night Mode test suite', 'Show generated tests', 'Which suites need tests?'],
-  firmware:   ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
+  builds:     ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
 }
 
 function ConvModal({ messages, onClose }) {
@@ -285,9 +288,9 @@ function AgentCard({ type, data, onApprove, onNavigate }) {
     case 'locale.coverage': case 'locale.comparison': return <LocaleCard data={data} />
     case 'simulation.result': return <SimCard data={data} />
     case 'rca.report': return <RcaCard data={data} />
-    case 'issue.draft': return <IssueCard data={data} onApprove={onApprove} />
+    case 'issue.draft': return <IssueCard data={data} onApprove={onApprove} onNavigate={onNavigate} />
     case 'issue.filed': return <FiledCard data={data} />
-    case 'hil.queue': return <HilQCard data={data} onApprove={onApprove} />
+    case 'hil.queue': return <HilQCard data={data} onApprove={onApprove} onNavigate={onNavigate} />
     case 'test.generated': return <GenCard data={data} />
     case 'firmware.list': return <FwCard data={data} />
     case 'sprint.summary': case 'roadmap.overview': return <GenericCard data={data} />
@@ -338,7 +341,7 @@ function FailuresCard({ data, onNavigate }) {
                 </div>
               )}
             </div>
-            <div className="fi-link" onClick={() => onNavigate?.('simulation')} style={{ cursor: 'pointer' }}>View in Simulator <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+            <div className="fi-link" onClick={() => onNavigate?.('runtests')} style={{ cursor: 'pointer' }}>View in Run Tests <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
           </div>
         ))}
       </div>
@@ -478,7 +481,7 @@ function RcaCard({ data }) {
   )
 }
 
-function IssueCard({ data, onApprove }) {
+function IssueCard({ data, onApprove, onNavigate }) {
   const issue = data.issue || data
   return (
     <div className="hil-card">
@@ -490,7 +493,7 @@ function IssueCard({ data, onApprove }) {
       <p className="hil-body"><strong>{issue.title}</strong> · Severity: {issue.severity} · Component: {issue.component}</p>
       <div className="hil-actions">
         <button className="btn-hil-primary" onClick={() => onApprove?.(issue)}>👁 Review &amp; Approve →</button>
-        <button className="btn-hil-secondary">View Details</button>
+        <button className="btn-hil-secondary" onClick={() => onNavigate?.('rca')}>View Details</button>
       </div>
     </div>
   )
@@ -509,7 +512,7 @@ function FiledCard({ data }) {
   )
 }
 
-function HilQCard({ data, onApprove }) {
+function HilQCard({ data, onApprove, onNavigate }) {
   const pending = data.pending || []
   return (
     <div className="hil-card">
@@ -523,7 +526,7 @@ function HilQCard({ data, onApprove }) {
           <div style={{ fontSize: 13, marginBottom: 6 }}>{item.title}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn-hil-primary" onClick={() => onApprove?.(item, true)}>Approve</button>
-            <button className="btn-hil-secondary" style={{ color: 'var(--g-red)', borderColor: '#fca5a5' }}>Reject</button>
+            <button className="btn-hil-secondary" style={{ color: 'var(--g-red)', borderColor: '#fca5a5' }} onClick={() => onApprove?.(item, false)}>Reject</button>
           </div>
         </div>
       ))}
@@ -733,7 +736,7 @@ function WorkspaceTab({ sessionId, userId, onTabChange }) {
       <aside className="sources-pane">
         <div className="sp-header">
           <span className="sp-title">Build Sources</span>
-          <div className="sp-add">
+          <div className="sp-add" onClick={() => send('Load additional locale configurations or test artifacts')}>
             <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
             Add
           </div>
@@ -802,11 +805,12 @@ const SCENARIOS = [
   { id: 'LOC-RG-11204', name: 'RTL Layout — AR-SA Regression', locale: 'ar-SA', status: 'queued' },
 ]
 
-function SimulationTab({ sessionId, userId }) {
+function SimulationTab({ sessionId, userId, onTabChange }) {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('All')
   const { messages, loading, send, lastText } = useAgent(sessionId, userId)
   const [hilOpen, setHilOpen] = useState(false)
+  const [running, setRunning] = useState(false)
   const debugRef = useRef(null)
   useEffect(() => {
     if (debugRef.current) debugRef.current.scrollTop = debugRef.current.scrollHeight
@@ -820,10 +824,10 @@ function SimulationTab({ sessionId, userId }) {
       <div className="sim-left">
         <div className="run-controls">
           <div className="rc-buttons">
-            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All</button>
-            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>Pause</button>
-            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>Step</button>
-            <button className="rc-btn primary"><svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop</button>
+            <button className="rc-btn secondary" onClick={() => { setFilter('All'); setRunning(true); send('Run all test scenarios for the pt-BR regression suite') }}><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All</button>
+            <button className="rc-btn secondary" onClick={() => setRunning(r => !r)}><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>{running ? 'Resume' : 'Pause'}</button>
+            <button className="rc-btn secondary" onClick={() => { const idx = filtered.findIndex(s => s.id === selected?.id); const next = filtered[idx + 1]; if (next) { setSelected(next); send(`Analyze scenario ${next.id}: ${next.name}`) } }}><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>Step</button>
+            <button className="rc-btn primary" onClick={() => { setSelected(null); setFilter('All'); setRunning(false) }}><svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop</button>
           </div>
           <div>
             <div className="progress-label">
@@ -878,11 +882,16 @@ function SimulationTab({ sessionId, userId }) {
                   {selected.hil && <span className="srh-badge srhb-hil">⏸ Awaiting HIL Decision</span>}
                 </div>
               </div>
-              <div className="srh-actions">
-                <button className="btn-sm btn-outline">← Prev</button>
-                <button className="btn-sm btn-outline">Next →</button>
-                <button className="btn-sm btn-agent">Generate RCA →</button>
-              </div>
+              {(() => {
+                const selIdx = selected ? filtered.findIndex(s => s.id === selected.id) : -1
+                return (
+                  <div className="srh-actions">
+                    <button className="btn-sm btn-outline" disabled={selIdx <= 0} onClick={() => { const p = filtered[selIdx - 1]; setSelected(p); send(`Analyze scenario ${p.id}: ${p.name}`) }}>← Prev</button>
+                    <button className="btn-sm btn-outline" disabled={selIdx >= filtered.length - 1} onClick={() => { const n = filtered[selIdx + 1]; setSelected(n); send(`Analyze scenario ${n.id}: ${n.name}`) }}>Next →</button>
+                    <button className="btn-sm btn-agent" onClick={() => onTabChange?.('rca')}>Generate RCA →</button>
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="debug-tabs">
@@ -1017,7 +1026,7 @@ const BUGANIZER_ISSUES = [
   { id: 'b/337821050', title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1', severity: 'S2', component: 'Nest>Firmware>Localization>ThermostatUI', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'], description: 'RTL layout engine not applied to temperature component.' },
 ]
 
-function RcaTab({ sessionId, userId }) {
+function RcaTab({ sessionId, userId, onTabChange }) {
   const { messages, loading, send, lastText } = useAgent(sessionId, userId)
   const [selectedIssue, setSelectedIssue] = useState(BUGANIZER_ISSUES[0])
   const [hilIssue, setHilIssue] = useState(null)
@@ -1047,8 +1056,8 @@ function RcaTab({ sessionId, userId }) {
             </div>
           </div>
           <div className="rcah-actions">
-            <button className="btn-sm btn-outline">← Back</button>
-            <button className="btn-sm btn-agent">File Issue →</button>
+            <button className="btn-sm btn-outline" onClick={() => onTabChange?.('runtests')}>← Back</button>
+            <button className="btn-sm btn-agent" onClick={() => setHilIssue(selectedIssue)}>File Issue →</button>
           </div>
         </div>
 
@@ -1211,8 +1220,8 @@ function RcaTab({ sessionId, userId }) {
           <div className="ha-buttons">
             <button className="btn-approve" onClick={() => setHilIssue(selectedIssue)}>✓ Approve &amp; File to Buganizer</button>
             <div className="btn-row">
-              <button className="btn-refine">Refine Issue</button>
-              <button className="btn-discard">Discard Draft</button>
+              <button className="btn-refine" onClick={() => send('Refine the Buganizer issue draft to improve precision and add more technical detail')}>Refine Issue</button>
+              <button className="btn-discard" onClick={() => send('Discard the current Buganizer draft and start fresh')}>Discard Draft</button>
             </div>
           </div>
         </div>
@@ -1292,7 +1301,7 @@ const FW_BUILDS = [
   { id: 'FW-005', device: 'Nest Cam', version: '2.7.0.5-rc2', status: 'released', locales: 10, passRate: '99%', blocker: false },
 ]
 
-function FirmwareTab({ sessionId, userId }) {
+function FirmwareTab({ sessionId, userId, onTabChange }) {
   const [selected, setSelected] = useState(FW_BUILDS[0])
   const { messages, loading, send, lastText } = useAgent(sessionId, userId)
 
@@ -1305,7 +1314,7 @@ function FirmwareTab({ sessionId, userId }) {
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       <div className="fw-left">
-        <div className="fw-panel-title">Firmware Builds</div>
+        <div className="fw-panel-title">Builds</div>
         {FW_BUILDS.map(fw => {
           const ss = statusStyle(fw.status)
           return (
@@ -1357,12 +1366,6 @@ function FirmwareTab({ sessionId, userId }) {
               )}
               {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
             </div>
-            <div className="ask-bar">
-              <div className="ask-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg></div>
-              <input className="ask-input" type="text" placeholder={`Ask about ${selected.device} ${selected.version}…`}
-                onKeyDown={e => { if (e.key === 'Enter') { send(e.target.value); e.target.value = '' } }} />
-              <button className="ask-send" onClick={e => { const inp = e.target.previousElementSibling; send(inp.value); inp.value = '' }}>Ask Agent</button>
-            </div>
           </>
         ) : (
           <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a firmware build</div></div>
@@ -1413,10 +1416,10 @@ export default function App() {
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, overflow: 'hidden' }}>
           {tab === 'workspace'  && <WorkspaceTab {...tabProps} />}
-          {tab === 'simulation' && <SimulationTab {...tabProps} />}
+          {tab === 'runtests'   && <SimulationTab {...tabProps} />}
           {tab === 'rca'        && <RcaTab {...tabProps} />}
           {tab === 'testgen'    && <TestGenTab {...tabProps} />}
-          {tab === 'firmware'   && <FirmwareTab {...tabProps} />}
+          {tab === 'builds'     && <FirmwareTab {...tabProps} />}
         </div>
         <BottomChat onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} onOpenConv={() => setConvOpen(true)} />
       </div>
