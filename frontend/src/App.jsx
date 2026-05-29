@@ -170,7 +170,30 @@ const CHIPS_BY_TAB = {
   firmware:   ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
 }
 
-function BottomChat({ onSend, loading, lastText, activeTab }) {
+function ConvModal({ messages, onClose }) {
+  const bodyRef = useRef(null)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [messages])
+  return (
+    <div className="overlay-bg" onClick={onClose}>
+      <div className="conv-modal" onClick={e => e.stopPropagation()}>
+        <div className="conv-modal-header">
+          <span>Full Conversation</span>
+          <button className="overlay-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="conv-modal-body" ref={bodyRef}>
+          {messages.length === 0
+            ? <div style={{ color: 'var(--text2)', textAlign: 'center', padding: 24 }}>No conversation yet — ask something below!</div>
+            : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)
+          }
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BottomChat({ onSend, loading, lastText, activeTab, onOpenConv }) {
   const [input, setInput] = useState('')
   const chips = CHIPS_BY_TAB[activeTab] || []
   const submit = (txt) => {
@@ -189,7 +212,7 @@ function BottomChat({ onSend, loading, lastText, activeTab }) {
           </div>
           <span className="bc-alabel">LocaTest AI</span>
           <span className="bc-preview">{lastText.slice(0, 140)}{lastText.length > 140 ? '…' : ''}</span>
-          <div className="bc-history-btn">Full conversation ↑</div>
+          <div className="bc-history-btn" onClick={onOpenConv} style={{ cursor: 'pointer' }}>Full conversation ↑</div>
         </div>
       )}
       <div className="bc-input-row">
@@ -219,9 +242,8 @@ function BottomChat({ onSend, loading, lastText, activeTab }) {
 }
 
 // ─── Agent feed messages ───────────────────────────────────────────────────────
-function AgentMsg({ msg, onApprove }) {
+function AgentMsg({ msg, onApprove, onNavigate }) {
   const bottomRef = useRef(null)
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [])
   if (msg.type === 'user') {
     return (
       <div className="msg-user" ref={bottomRef}>
@@ -248,15 +270,15 @@ function AgentMsg({ msg, onApprove }) {
     )
   }
   if (msg.type === 'card') {
-    return <div ref={bottomRef}><AgentCard type={msg.card_type} data={msg.data} onApprove={onApprove} /></div>
+    return <div ref={bottomRef}><AgentCard type={msg.card_type} data={msg.data} onApprove={onApprove} onNavigate={onNavigate} /></div>
   }
   return null
 }
 
 // ─── Card renderers ────────────────────────────────────────────────────────────
-function AgentCard({ type, data, onApprove }) {
+function AgentCard({ type, data, onApprove, onNavigate }) {
   switch (type) {
-    case 'test.failures': return <FailuresCard data={data} />
+    case 'test.failures': return <FailuresCard data={data} onNavigate={onNavigate} />
     case 'dashboard.summary': return <DashCard data={data} />
     case 'suite.summary': return <SuiteCard data={data} />
     case 'test.list': case 'test.search': return <TestListCard data={data} />
@@ -297,7 +319,7 @@ function DashCard({ data }) {
   )
 }
 
-function FailuresCard({ data }) {
+function FailuresCard({ data, onNavigate }) {
   const failures = data.failures || []
   return (
     <>
@@ -316,7 +338,7 @@ function FailuresCard({ data }) {
                 </div>
               )}
             </div>
-            <div className="fi-link">View in Simulator <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+            <div className="fi-link" onClick={() => onNavigate?.('simulation')} style={{ cursor: 'pointer' }}>View in Simulator <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
           </div>
         ))}
       </div>
@@ -684,7 +706,7 @@ const INIT_WORKSPACE = [
   },
 ]
 
-function WorkspaceTab({ sessionId, userId }) {
+function WorkspaceTab({ sessionId, userId, onTabChange }) {
   const { messages, loading, send, lastText, setMessages } = useAgent(sessionId, userId)
   const [hilIssue, setHilIssue] = useState(null)
   const feedRef = useRef(null)
@@ -757,7 +779,7 @@ function WorkspaceTab({ sessionId, userId }) {
         </div>
 
         {messages.map((msg, i) => (
-          <AgentMsg key={i} msg={msg} onApprove={(issue) => setHilIssue(issue)} />
+          <AgentMsg key={i} msg={msg} onApprove={(issue) => setHilIssue(issue)} onNavigate={onTabChange} />
         ))}
       </main>
 
@@ -785,6 +807,10 @@ function SimulationTab({ sessionId, userId }) {
   const [filter, setFilter] = useState('All')
   const { messages, loading, send, lastText } = useAgent(sessionId, userId)
   const [hilOpen, setHilOpen] = useState(false)
+  const debugRef = useRef(null)
+  useEffect(() => {
+    if (debugRef.current) debugRef.current.scrollTop = debugRef.current.scrollHeight
+  }, [messages])
 
   const filtered = filter === 'All' ? SCENARIOS : filter === 'Pass' ? SCENARIOS.filter(s => s.status === 'pass') : filter === 'Fail' ? SCENARIOS.filter(s => s.status === 'fail') : SCENARIOS.filter(s => s.hil)
 
@@ -796,6 +822,7 @@ function SimulationTab({ sessionId, userId }) {
           <div className="rc-buttons">
             <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All</button>
             <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>Pause</button>
+            <button className="rc-btn secondary"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>Step</button>
             <button className="rc-btn primary"><svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop</button>
           </div>
           <div>
@@ -898,7 +925,7 @@ function SimulationTab({ sessionId, userId }) {
               </div>
 
               {/* Debug inspector */}
-              <div className="debug-inspector">
+              <div className="debug-inspector" ref={debugRef}>
                 <div className="di-section">
                   <div className="dis-header">
                     <span className="dis-title">String Bundle Inspector</span>
@@ -911,6 +938,20 @@ function SimulationTab({ sessionId, userId }) {
                     <div className="kv-row"><span className="kv-key">hs_weather_label</span><span className="kv-val ok">"Nublado" ✓</span></div>
                     <div className="kv-row"><span className="kv-key">hs_greeting_morning</span><span className="kv-val missing">KEY NOT FOUND ✗</span></div>
                     <div className="kv-row" style={{ marginLeft: 16 }}><span className="kv-key" style={{ color: '#f59e0b' }}>en-US fallback</span><span className="kv-val" style={{ color: '#fcd34d' }}>"Good morning"</span></div>
+                  </div>
+                </div>
+                <div className="di-section">
+                  <div className="dis-header">
+                    <span className="dis-title">Variable Watch</span>
+                    <span className="dis-badge ok">Live</span>
+                  </div>
+                  <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
+                    <div className="kv-row"><span className="kv-key">currentLocale</span><span className="kv-val ok">"pt-BR"</span></div>
+                    <div className="kv-row"><span className="kv-key">elementText</span><span className="kv-val missing">"Good morning"</span></div>
+                    <div className="kv-row"><span className="kv-key">expectedText</span><span className="kv-val ok">"Bom dia"</span></div>
+                    <div className="kv-row"><span className="kv-key">translationKey</span><span className="kv-val ok">"hs_greeting_morning"</span></div>
+                    <div className="kv-row"><span className="kv-key">keyExists(pt-BR)</span><span className="kv-val missing">false ✗</span></div>
+                    <div className="kv-row"><span className="kv-key">fallbackLocale</span><span className="kv-val" style={{ color: '#f59e0b' }}>"en-US"</span></div>
                   </div>
                 </div>
                 <div className="di-section">
@@ -952,16 +993,14 @@ function SimulationTab({ sessionId, userId }) {
                     </div>
                   ))}
                 </div>
+                <div className="hi-debug-tools">
+                  {['Inspect DOM', 'Compare Screenshots', 'Check Bundle Diff', 'Run Partial Fix'].map(tool => (
+                    <div key={tool} className="hi-tool-btn">{tool}</div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Ask agent bar */}
-            <div className="ask-bar">
-              <div className="ask-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg></div>
-              <input className="ask-input" type="text" placeholder={`Ask agent about ${selected.id}… e.g. "Are other locales affected?"`}
-                onKeyDown={e => { if (e.key === 'Enter') { send(e.target.value); e.target.value = '' } }} />
-              <button className="ask-send" onClick={e => { const inp = e.target.previousElementSibling; send(inp.value); inp.value = '' }}>Ask Agent</button>
-            </div>
           </>
         ) : (
           <div className="empty-state"><div className="empty-icon">⚡</div><div className="empty-title">Select a scenario</div></div>
@@ -1128,48 +1167,54 @@ function RcaTab({ sessionId, userId }) {
 
       {/* Right: Issue filing panel */}
       <div className="rca-right">
-        <div className="issue-panel-header">
-          Issue Filing — Buganizer
-          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)' }}>Auto-populated by Agent</span>
+        <div className="ir-header">
+          <div className="irh-title">Issue Filing — Buganizer</div>
+          <div className="irh-sub">Agent-populated draft · Awaiting approval</div>
         </div>
-        <div className="issue-form">
-          <div className="form-field"><label>Title</label><input defaultValue="[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3" /></div>
-          <div className="form-field">
-            <label>Severity</label>
-            <div className="sev-pills">
-              {['S0', 'S1', 'S2', 'S3'].map((s, i) => (
-                <div key={s} className={`sev-pill${severity === s ? ` active s${i}` : ''}`} onClick={() => setSeverity(s)}>{s}</div>
-              ))}
-            </div>
+        <div className="buganizer-card">
+          <div className="bc-header" style={{ background: '#1a73e8' }}>
+            <span className="bc-logo">Buganizer</span>
+            <span className="bc-title">[PT-BR][P0] Checkout greeting strings untranslated</span>
+            <span className="bc-id">b/337821049</span>
           </div>
-          <div className="form-field"><label>Component</label><input defaultValue="Nest > Firmware > Localization > HomeScreen" /></div>
-          <div className="form-field"><label>Assignee</label><input defaultValue="l10n-team@google.com" /></div>
-          <div className="form-field">
-            <label>Affected Test Cases</label>
-            {selectedIssue.test_case_ids.map(id => (
-              <div key={id} style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: 'var(--g-red)', padding: '2px 0' }}>• {id}</div>
-            ))}
-          </div>
-          <div className="form-field"><label>Developer Comments</label><textarea rows={3} defaultValue="Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys. Fix: apply proposed diff to pt-BR.strings and rebuild." /></div>
-          {messages.filter(m => m.type === 'agent').slice(-1).map((msg, i) => (
-            <div key={i} style={{ background: 'var(--agent-ll)', borderRadius: 8, padding: 10, fontSize: 13, color: 'var(--dark2)', border: '1px solid rgba(109,40,217,.1)' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--agent)', marginBottom: 4 }}>AGENT RECOMMENDATION</div>
-              {msg.text}
-            </div>
-          ))}
-        </div>
-        <div className="confirm-panel">
-          <div className="confirm-checklist">
-            {['RCA complete — 97% confidence', 'Root cause: 4 missing PT-BR string keys', 'Fix diff attached and reviewed', 'Affected test cases linked (3)'].map(item => (
-              <div key={item} className="check-row">
-                <svg viewBox="0 0 24 24" width={16} height={16} style={{ fill: 'none', stroke: 'var(--g-green)', strokeWidth: 2 }}><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--g-green)" stroke="none"/></svg>
-                {item}
+          <div className="bc-body">
+            {[
+              ['Title', '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3'],
+              ['Component', 'Nest > Firmware > Localization > HomeScreen'],
+              ['Severity', 'S2 — Major'],
+              ['Sprint', 'Sprint 43'],
+              ['Assignee', 'l10n-team@google.com'],
+            ].map(([label, val]) => (
+              <div key={label} className="bc-field">
+                <span className="bcf-label">{label}</span>
+                <span className="bcf-val">{val}</span>
               </div>
             ))}
           </div>
-          <button className="btn-file-issue" onClick={() => setHilIssue(selectedIssue)}>
-            🐛 Approve &amp; File Issue in Buganizer →
-          </button>
+        </div>
+        <div className="comment-preview">
+          <div className="cp-header-bar">
+            <span className="cp-header-bar-title">Developer Comment</span>
+            <span className="cp-preview-badge">AI Generated</span>
+          </div>
+          <div className="comment-body">
+            <div className="cb-avatar">AI</div>
+            <div className="cb-content">
+              <div className="cbc-name">LocaTest Agent <span className="cbc-role">· RCA Agent</span></div>
+              <div className="cbc-text">Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys (<code>hs_greeting_morning</code>, <code>hs_greeting_afternoon</code>, <code>hs_weather_label</code>, <code>hs_calendar_today</code>). Apply proposed diff to <code>pt-BR.strings</code> and rebuild the l10n-sprint43 branch to resolve.</div>
+            </div>
+          </div>
+        </div>
+        <div className="hil-approval">
+          <div className="ha-title">⚠ Awaiting HIL Approval</div>
+          <div className="ha-body">Review the draft and approve to file, or refine before filing.</div>
+          <div className="ha-buttons">
+            <button className="btn-approve" onClick={() => setHilIssue(selectedIssue)}>✓ Approve &amp; File to Buganizer</button>
+            <div className="btn-row">
+              <button className="btn-refine">Refine Issue</button>
+              <button className="btn-discard">Discard Draft</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1353,13 +1398,12 @@ function Footer() {
 // ─── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState('workspace')
+  const [convOpen, setConvOpen] = useState(false)
   const sessionId = useRef(Math.random().toString(36).slice(2)).current
   const userId = 'default_user'
 
-  // Shared agent for bottom chat bar
   const sharedAgent = useAgent(sessionId, userId)
-
-  const tabProps = { sessionId, userId }
+  const tabProps = { sessionId, userId, onTabChange: setTab }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -1374,10 +1418,10 @@ export default function App() {
           {tab === 'testgen'    && <TestGenTab {...tabProps} />}
           {tab === 'firmware'   && <FirmwareTab {...tabProps} />}
         </div>
-        {/* Global bottom chat always visible */}
-        <BottomChat onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} />
+        <BottomChat onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} onOpenConv={() => setConvOpen(true)} />
       </div>
       <Footer />
+      {convOpen && <ConvModal messages={sharedAgent.messages} onClose={() => setConvOpen(false)} />}
     </div>
   )
 }
