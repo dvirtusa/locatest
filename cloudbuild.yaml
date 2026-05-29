@@ -1,4 +1,5 @@
 substitutions:
+  _SHORT_SHA: latest
   _SERVICE_NAME: locatest-agent
   _REGION: us-central1
   _PROJECT_ID: gcp-poc-investment-219973-ce
@@ -26,7 +27,7 @@ steps:
     id: build-image
     args:
       - build
-      - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
       - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
       - .
     waitFor:
@@ -37,7 +38,7 @@ steps:
     id: push-sha
     args:
       - push
-      - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+      - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
     waitFor:
       - build-image
 
@@ -57,7 +58,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE_NAME}
-      - --image=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --image=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
       - --region=${_REGION}
       - --platform=managed
       - --service-account=${_SA}
@@ -74,5 +75,5 @@ steps:
       - push-sha
 
 images:
-  - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${SHORT_SHA}
+  - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
   - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
