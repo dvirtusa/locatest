@@ -99,44 +99,46 @@ function Navbar() {
 }
 
 // ─── Session bar ───────────────────────────────────────────────────────────────
-const WF_STAGES = ['Intake', 'Analysis', 'Test Run', 'HIL Review', 'Issue Filing', 'Complete']
-const TAB_TO_STAGE = { workspace: 1, runtests: 2, rca: 4, testgen: 1, builds: 1 }
-const STAGE_TO_TAB = { 2: 'runtests', 3: 'rca', 4: 'rca' }
-
-function SessionBar({ activeTab, onTabChange }) {
-  const activeStage = TAB_TO_STAGE[activeTab] ?? 1
+function SessionBar({ onTabChange }) {
   const [paused, setPaused] = useState(false)
+  const stats = [
+    { label: 'Passed',   value: '1,058', color: '#34a853', tab: 'runtests' },
+    { label: 'Failed',   value: '89',    color: '#ea4335', tab: 'runtests' },
+    { label: 'P0 Blockers', value: '2',  color: '#f59e0b', tab: 'rca' },
+    { label: 'HIL Pending', value: '3',  color: '#a855f7', tab: 'rca' },
+    { label: 'Coverage', value: '60.7%', color: 'rgba(255,255,255,.5)', tab: null },
+  ]
   return (
     <div className="session-bar">
       <div className="sb-build">
         <div className="sb-icon">
           <svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
         </div>
-        <span className="sb-name">Nest Hub 4.1.0.12-rc3 – QA Build</span>
-        <span className="sb-meta">· Nest Firmware · Sprint 43</span>
+        <span className="sb-name">Nest Hub 4.1.0.12-rc3</span>
+        <span className="sb-meta">· Sprint 43 · QA Build</span>
       </div>
       <div className="sb-divider" />
-      <div className="workflow">
-        {WF_STAGES.map((s, i) => (
-          <React.Fragment key={s}>
-            {i > 0 && <span className="wf-arrow">›</span>}
-            <div
-              className={`wf-stage${i < activeStage ? ' done' : i === activeStage ? ' active' : ''}${STAGE_TO_TAB[i] ? ' clickable' : ''}`}
-              onClick={() => STAGE_TO_TAB[i] && onTabChange(STAGE_TO_TAB[i])}
-            >
-              <div className="wf-dot" />
-              {s}
-            </div>
-          </React.Fragment>
+      <div className="sb-stats-row">
+        {stats.map(({ label, value, color, tab }) => (
+          <div
+            key={label}
+            className="sb-stat-pill"
+            style={{ cursor: tab ? 'pointer' : 'default' }}
+            onClick={() => tab && onTabChange(tab)}
+            title={tab ? `Go to ${tab}` : undefined}
+          >
+            <span className="ssp-val" style={{ color }}>{value}</span>
+            <span className="ssp-label">{label}</span>
+          </div>
         ))}
       </div>
       <div className="sb-right">
         <div className="agent-indicator">
           <div className="ai-dot" />
-          <span className="agent-label">Agent Active · 89 new failures · Sprint 43</span>
+          <span className="agent-label">Agent Active</span>
         </div>
         <button className="sb-btn" onClick={() => setPaused(p => !p)}>
-          {paused ? '▶ Resume Agent' : '⏸ Pause Agent'}
+          {paused ? '▶ Resume' : '⏸ Pause'}
         </button>
       </div>
     </div>
@@ -2315,7 +2317,7 @@ export default function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Navbar />
-      <SessionBar activeTab={tab} onTabChange={setTab} />
+      <SessionBar onTabChange={setTab} />
       <TabNav active={tab} onChange={setTab} />
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>

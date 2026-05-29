@@ -29,27 +29,24 @@ body{font-family:'Roboto','Google Sans',sans-serif;background:var(--bg);color:va
 .g-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4285f4,#34a853);display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:600;cursor:pointer}
 
 /* ── SESSION BAR ── */
-.session-bar{height:52px;background:var(--dark);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
-.sb-build{display:flex;align-items:center;gap:8px}
-.sb-icon{width:28px;height:28px;background:rgba(255,255,255,.1);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.sb-icon svg{width:15px;height:15px;fill:rgba(255,255,255,.7)}
-.sb-name{font-family:'Google Sans',sans-serif;font-size:13.5px;font-weight:500;color:#e8eaed}
-.sb-meta{font-size:11.5px;color:rgba(255,255,255,.5);margin-left:4px}
-.sb-divider{width:1px;height:20px;background:rgba(255,255,255,.15);flex-shrink:0}
-.workflow{display:flex;align-items:center}
-.wf-stage{display:flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:12.5px;font-weight:500;color:rgba(255,255,255,.45);cursor:pointer;transition:all .15s;white-space:nowrap}
-.wf-stage.done{color:rgba(255,255,255,.55)}
-.wf-stage.done .wf-dot{background:var(--g-green)}
-.wf-stage.active{background:rgba(255,255,255,.1);color:#e8eaed}
-.wf-stage.active .wf-dot{background:var(--g-blue);animation:pulse-dot 2s infinite}
-.wf-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2);flex-shrink:0}
-.wf-arrow{color:rgba(255,255,255,.2);font-size:11px;margin:0 2px}
+.session-bar{height:48px;background:var(--dark);display:flex;align-items:center;padding:0 20px;gap:0;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.07)}
+.sb-build{display:flex;align-items:center;gap:8px;padding-right:16px}
+.sb-icon{width:26px;height:26px;background:rgba(255,255,255,.1);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-icon svg{width:14px;height:14px;fill:rgba(255,255,255,.7)}
+.sb-name{font-family:'Google Sans',sans-serif;font-size:13px;font-weight:600;color:#e8eaed}
+.sb-meta{font-size:11px;color:rgba(255,255,255,.4);margin-left:2px}
+.sb-divider{width:1px;height:22px;background:rgba(255,255,255,.12);flex-shrink:0;margin:0 16px}
+.sb-stats-row{display:flex;align-items:center;gap:4px}
+.sb-stat-pill{display:flex;flex-direction:column;align-items:center;padding:4px 14px;border-radius:8px;transition:background .15s;gap:1px}
+.sb-stat-pill:hover{background:rgba(255,255,255,.07)}
+.ssp-val{font-family:'Google Sans',sans-serif;font-size:14px;font-weight:700;line-height:1}
+.ssp-label{font-size:10px;color:rgba(255,255,255,.38);font-weight:500;letter-spacing:.3px;line-height:1}
 .sb-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-shrink:0}
-.agent-indicator{display:flex;align-items:center;gap:7px;background:rgba(26,115,232,.25);border:1px solid rgba(26,115,232,.45);padding:5px 12px;border-radius:20px}
-.ai-dot{width:7px;height:7px;border-radius:50%;background:#74a7fb;animation:pulse-dot 1.5s infinite}
-.agent-label{font-size:12px;font-weight:500;color:#a8c7fa}
-.sb-btn{padding:6px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:20px;color:rgba(255,255,255,.7);font-size:12.5px;font-weight:500;cursor:pointer;font-family:'Google Sans',sans-serif;transition:background .15s}
-.sb-btn:hover{background:rgba(255,255,255,.13)}
+.agent-indicator{display:flex;align-items:center;gap:7px;background:rgba(26,115,232,.2);border:1px solid rgba(26,115,232,.35);padding:4px 11px;border-radius:20px}
+.ai-dot{width:6px;height:6px;border-radius:50%;background:#74a7fb;animation:pulse-dot 1.5s infinite}
+.agent-label{font-size:11.5px;font-weight:500;color:#a8c7fa}
+.sb-btn{padding:5px 13px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:20px;color:rgba(255,255,255,.65);font-size:12px;font-weight:500;cursor:pointer;font-family:'Google Sans',sans-serif;transition:background .15s}
+.sb-btn:hover{background:rgba(255,255,255,.12)}
 @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.8)}}
 
 /* ── TAB NAV ── */
