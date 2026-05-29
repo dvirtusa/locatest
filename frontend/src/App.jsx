@@ -194,6 +194,12 @@ const CHIP_MESSAGES_BY_TAB = {
     'Compare screenshots': 'Compare the actual vs expected screenshots for the PT-BR home screen failures: hs_greeting_morning shows "Good morning" instead of "Bom dia".',
     'Check bundle diff': 'Show the pt-BR.strings bundle diff for Sprint 43 — which string keys are missing from the PT-BR bundle that exist in en-US.strings?',
   },
+  builds: {
+    'Show all builds': 'List all firmware builds currently in QA for Sprint 43: device name, version, status, pass rate, and whether each has a release blocker.',
+    'Show blockers': 'Which firmware builds in Sprint 43 have release blockers? List device, version, blocker count, and the critical failing test cases.',
+    'Nest Hub test status': 'Show the full test execution status for Nest Hub 4.1.0.12-rc3 in Sprint 43: total executed, passed, failed, skipped, per-locale breakdown, and which suites have failures.',
+    'AR-SA firmware status': 'Show the AR-SA (Arabic) test results for the currently selected firmware build: how many tests ran, passed, failed — highlight any RTL layout failures or translation-missing errors.',
+  },
 }
 
 function ChatDrawer({ onSend, loading, lastText, activeTab, messages, chipContext }) {
@@ -356,6 +362,54 @@ function FeedReplyBar({ send, loading, placeholder }) {
           : <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" strokeLinecap="round" strokeLinejoin="round"/></svg>
         }
       </button>
+    </div>
+  )
+}
+
+// ─── Nest Device Screenshot Mock ──────────────────────────────────────────────
+const NEST_WIDGETS = {
+  greeting: { icon: '🌅', label: 'Morning Greeting', keys: ['greeting', 'guten', 'mañana'] },
+  weather:  { icon: '🌤', label: 'Weather',          keys: ['weather', 'temp', 'clima'] },
+  calendar: { icon: '📅', label: 'Calendar',         keys: ['calendar', 'today', 'today'] },
+  assistant:{ icon: '🎙', label: 'Assistant',        keys: ['assistant', 'hey', 'help'] },
+}
+function NestDeviceMock({ shot, locale }) {
+  const { screen, actual, expected, key } = shot
+  const isGreeting = /greeting|morning|afternoon|evening/i.test(screen + key)
+  const isWeather  = /weather|clima|temp/i.test(screen + key)
+  const isCalendar = /calendar|today|date/i.test(screen + key)
+  const widgetIcon = isGreeting ? '🌅' : isWeather ? '🌤' : isCalendar ? '📅' : '📱'
+
+  return (
+    <div className="nest-mock">
+      <div className="nm-topbar">
+        <span className="nm-device-label">Nest Hub · pt-{locale?.toUpperCase() || 'BR'}</span>
+        <span className="nm-fail-badge">TRANSLATION MISSING · {key}</span>
+      </div>
+      {/* Ambient display */}
+      <div className="nm-screen">
+        {/* Clock */}
+        <div className="nm-clock">
+          <span className="nm-time">09:41</span>
+          <span className="nm-date">Friday, May 29</span>
+        </div>
+        {/* Failing widget */}
+        <div className="nm-widget">
+          <span className="nm-widget-icon">{widgetIcon}</span>
+          <div className="nm-widget-content">
+            <div className="nm-actual-text">{actual.replace(/"/g, '')}</div>
+            <div className="nm-fail-underline" />
+            <div className="nm-expected-row">
+              <span className="nm-expected-label">Expected →</span>
+              <span className="nm-expected-val">{expected.replace(/"/g, '')}</span>
+            </div>
+          </div>
+        </div>
+        {/* Google Home dots */}
+        <div className="nm-dots">
+          {[0,1,2,3].map(i => <span key={i} className={`nm-dot ${i===0?'nm-dot-active':''}`} />)}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1277,22 +1331,7 @@ function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, set
                       <div className="step-body">
                         <div className="step-action">{s.action}</div>
                         <div className={`step-result${s.status === 'fail' ? ' fail' : s.status === 'pass' ? ' pass' : ''}`} style={s.status === 'skip' ? { color: 'var(--text3)' } : {}}>{s.result}</div>
-                        {s.screenshot && (
-                          <div className="step-screenshot">
-                            <span className="ss-img-label">📸 Failure capture · {s.screenshot.screen}</span>
-                            <div style={{ background: '#1a1a2e', padding: 10, display: 'flex', gap: 8, position: 'relative' }}>
-                              <div style={{ flex: 1, background: 'rgba(234,67,53,.12)', border: '1px solid rgba(234,67,53,.3)', borderRadius: 5, padding: '6px 10px', fontFamily: 'Roboto Mono', fontSize: 10.5 }}>
-                                <div style={{ color: '#f87171', fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '.4px' }}>Actual</div>
-                                <div style={{ color: '#fca5a5' }}>{s.screenshot.actual}</div>
-                              </div>
-                              <div style={{ flex: 1, background: 'rgba(52,168,83,.12)', border: '1px solid rgba(52,168,83,.3)', borderRadius: 5, padding: '6px 10px', fontFamily: 'Roboto Mono', fontSize: 10.5 }}>
-                                <div style={{ color: '#4ade80', fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '.4px' }}>Expected</div>
-                                <div style={{ color: '#86efac' }}>{s.screenshot.expected}</div>
-                              </div>
-                              <div style={{ position: 'absolute', top: 5, right: 8, background: 'rgba(234,67,53,.85)', color: 'white', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace' }}>TRANSLATION MISSING · {s.screenshot.key}</div>
-                            </div>
-                          </div>
-                        )}
+                        {s.screenshot && <NestDeviceMock shot={s.screenshot} locale={selected.locale} />}
                       </div>
                     </div>
                   ))}
@@ -2155,9 +2194,20 @@ const FW_BUILDS = [
   },
 ]
 
-function FirmwareTab({ sessionId, userId, onTabChange }) {
+function FirmwareTab({ sessionId, userId, onTabChange, setChipContext }) {
   const [selected, setSelected] = useState(FW_BUILDS[0])
   const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+
+  useEffect(() => {
+    if (!selected) return
+    setChipContext?.(`[Build context] Device: ${selected.device} | Version: ${selected.version} | Status: ${selected.status} | Pass rate: ${selected.passRate} | Passed: ${selected.passed} | Failed: ${selected.failed} | Skipped: ${selected.skipped} | Sprint 43 QA build${selected.blocker ? ' | HAS RELEASE BLOCKER' : ''}`)
+    return () => setChipContext?.(null)
+  }, [selected?.id])
+
+  const sendWithContext = (t) => {
+    const ctx = `[Build context] Device: ${selected?.device} | Version: ${selected?.version} | Status: ${selected?.status} | Pass rate: ${selected?.passRate} | Passed: ${selected?.passed} | Failed: ${selected?.failed} | Sprint 43\n\n${t}`
+    send(ctx)
+  }
 
   const statusStyle = s => ({
     in_qa: { bg: 'var(--g-blue-ll)', color: '#1557b0' },
@@ -2172,7 +2222,7 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
         {FW_BUILDS.map(fw => {
           const ss = statusStyle(fw.status)
           return (
-            <div key={fw.id} className={`fw-item${selected?.id === fw.id ? ' active' : ''}`} onClick={() => { setSelected(fw); send(`Tell me about ${fw.device} firmware ${fw.version}`) }}>
+            <div key={fw.id} className={`fw-item${selected?.id === fw.id ? ' active' : ''}`} onClick={() => { setSelected(fw); send(`[Build context] Device: ${fw.device} | Version: ${fw.version} | Status: ${fw.status} | Pass rate: ${fw.passRate} | Passed: ${fw.passed} | Failed: ${fw.failed} | Sprint 43${fw.blocker ? ' | HAS RELEASE BLOCKER' : ''}\n\nSummarise the test results for ${fw.device} firmware ${fw.version} — pass rate, failed count, any release blockers, and which locales need attention.`) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
                 <span className="fw-device">{fw.device}</span>
                 {fw.blocker && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8, background: '#fee2e2', color: '#991b1b' }}>Blocker</span>}
@@ -2321,7 +2371,7 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
               )}
               {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
             </div>
-            <FeedReplyBar send={send} loading={loading} placeholder="Ask agent about this build…" />
+            <FeedReplyBar send={sendWithContext} loading={loading} placeholder="Ask agent about this build…" />
           </>
         ) : (
           <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a build</div></div>

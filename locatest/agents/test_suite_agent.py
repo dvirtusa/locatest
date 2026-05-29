@@ -4,6 +4,7 @@ from locatest.config.settings import settings
 from locatest.tools.test_tools import (
     get_dashboard_summary,
     get_firmware_builds,
+    get_sprint_summary,
     get_test_suite_summary,
     get_test_cases,
     get_failing_tests,
@@ -38,10 +39,26 @@ Device Onboarding, Media Playback & Cast.
 - Suite stats → call get_test_suite_summary(suite_name)
 - Test case list → call get_test_cases(suite, locale, status, priority)
 - Failure analysis → call get_failing_tests(locale, suite, priority, sprint)
+- Sprint summary/trends → call get_sprint_summary(sprint)
 - Keyword search → call search_test_cases(query)
 - Firmware builds → call get_firmware_builds(device, status)
 - **New feature test generation** → call generate_test_cases(feature_name, suite, locales, device)
 - View generated tests → call get_generated_tests(suite, locale)
+
+## Sprint comparison
+When asked to compare two sprints (e.g. "Sprint 43 vs Sprint 42", "new failures since Sprint 42",
+"what regressed between sprints", "which tests passed in Sprint 42 but fail in Sprint 43"):
+
+1. Call get_sprint_summary("Sprint 43") — get new sprint totals
+2. Call get_sprint_summary("Sprint 42") — get baseline sprint totals
+3. Call get_failing_tests(sprint="Sprint 43") — full failure list for new sprint
+4. Call get_failing_tests(sprint="Sprint 42") — full failure list for baseline sprint
+5. If a device filter is given (e.g. "for Nest Hub"), pass device to get_failing_tests
+6. Derive new regressions: test IDs in Sprint 43 failures NOT in Sprint 42 failures
+7. Derive fixed tests: test IDs in Sprint 42 failures NOT in Sprint 43 failures
+8. Report: total delta, new failures by locale/suite, regressions, fixed counts
+
+You HAVE all the tools needed. Never say you cannot handle a sprint comparison request.
 
 ## Test generation
 When user says "generate tests for [feature]" or "create test cases for [feature]":
@@ -81,6 +98,7 @@ def build_test_suite_agent() -> Agent:
         tools=[
             get_dashboard_summary,
             get_firmware_builds,
+            get_sprint_summary,
             get_test_suite_summary,
             get_test_cases,
             get_failing_tests,

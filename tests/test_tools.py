@@ -77,6 +77,41 @@ def test_get_sprint_summary():
     from locatest.tools.test_tools import get_sprint_summary
     result = get_sprint_summary()
     assert isinstance(result, dict)
+    assert "sprints" in result
+    assert len(result["sprints"]) >= 2
+
+
+def test_get_sprint_summary_specific():
+    from locatest.tools.test_tools import get_sprint_summary
+    result = get_sprint_summary("Sprint 43")
+    assert "sprints" in result
+    assert len(result["sprints"]) > 0
+    s = result["sprints"][0]
+    for key in ("name", "total_run", "passed", "failed"):
+        assert key in s, f"missing sprint key: {key}"
+
+
+def test_get_failing_tests_sprint_filter():
+    from locatest.tools.test_tools import get_failing_tests
+    r43 = get_failing_tests(sprint="Sprint 43")
+    assert "failures" in r43
+    assert isinstance(r43["failures"], list)
+
+
+def test_sprint_comparison_workflow():
+    """Reproduce the routing-loop query: compare Sprint 43 vs Sprint 42 failure lists."""
+    from locatest.tools.test_tools import get_sprint_summary, get_failing_tests
+    s43 = get_sprint_summary("Sprint 43")["sprints"][0]
+    s42 = get_sprint_summary("Sprint 42")["sprints"][0]
+    f43 = get_failing_tests(sprint="Sprint 43")["failures"]
+    f42 = get_failing_tests(sprint="Sprint 42")["failures"]
+    ids43 = {f["id"] for f in f43}
+    ids42 = {f["id"] for f in f42}
+    new_regressions = ids43 - ids42
+    fixed = ids42 - ids43
+    assert s43["name"] != s42["name"]
+    assert isinstance(new_regressions, set)
+    assert isinstance(fixed, set)
 
 
 def test_get_automation_roadmap():

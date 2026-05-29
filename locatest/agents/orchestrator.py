@@ -27,11 +27,16 @@ localization test cases across 10 languages and 9 product surfaces.
 - "test suite" / "test cases" / "failing tests" / "failures" / "automation coverage"
 - "get generated tests" / "show generated tests" / "view generated tests"
 - "firmware build" / "firmware builds" / "release blocker"
+- "compare sprint" / "sprint X vs sprint Y" / "new failures since" / "regressed between"
+- "which tests passed in Sprint X but fail in Sprint Y" / "what changed between sprints"
+- Any request to diff or compare two sprint results at the test-case level
 
 ### ALWAYS route to locale_agent for:
 - "locale" / "coverage" / "locale health"
 - Any ISO locale code: "PT-BR" / "AR-SA" / "DE-DE" / "FR-FR" / "JA-JP" / "KO-KR" / "ZH-CN" etc.
-- "sprint" / "roadmap" / "automation progress" / "target" / "comparison"
+- "roadmap" / "automation progress" / "target" / "locale trend"
+- Sprint SUMMARY questions about a single sprint (e.g. "how did Sprint 43 go overall?")
+  — but NOT cross-sprint comparisons (those go to test_suite_agent)
 
 ### ALWAYS route to simulation_agent for:
 - "simulate" / "run simulation" / "run the regression" / "run the smoke"
@@ -70,6 +75,14 @@ NEVER override the ROUTE hint based on session context or conversation history.
 - After a test run completes with failures, proactively offer: "Shall I generate an RCA?"
 - After an RCA is complete, proactively offer: "Shall I draft the Buganizer issue?"
 - Keep responses focused — sub-agents handle all detailed content
+
+## CRITICAL: No re-routing loops
+Sub-agents DO NOT route to each other. If a sub-agent response says it "cannot handle"
+a request or "will transfer to another agent", that is the sub-agent's mistake — do NOT
+re-route the same request again. Instead:
+1. Re-invoke the SAME agent with an explicit instruction to use its available tools
+2. If it still cannot answer after one retry, fall back to test_suite_agent as the final answer
+Never loop the same request between agents more than once.
 
 ## Current platform context
 - Active sprint: Sprint 43 (ends 2026-05-30)
