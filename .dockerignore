@@ -1,0 +1,16 @@
+.git
+.gitignore
+frontend/node_modules
+frontend/dist
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.venv
+venv
+tests/
+locatest-ui-designs/
+*.md
+.env
+.env.*

@@ -17,10 +17,18 @@ import re
 _ROUTING_RULES: dict[str, dict] = {
     "test_suite_agent": {
         "intent_map": {
+            # Priority -1 (super-high): test generation must win before any other rule
+            "generate_tests": (-1, [
+                "generate test cases", "generate test case",
+                "create test cases", "create test case",
+                "generate tests for", "generate test for",
+                "new tests for", "new test cases for",
+                "test generation",
+            ]),
             "dashboard":      (0, ["dashboard", "overview", "summary", "how are we doing", "health score"]),
             "test_cases":     (1, ["test suite", "test suites", "test case", "test cases"]),
             "failures":       (1, ["failing tests", "failed tests", "failure"]),
-            "generate_tests": (0, ["generate test", "generate tests", "create test"]),
+            "generate_tests2":(0, ["generate test", "generate tests", "create test"]),
             "firmware":       (1, ["firmware build", "release blocker", "firmware"]),
             "overview":       (2, ["automation coverage", "pass rate"]),
         },
@@ -41,11 +49,11 @@ _ROUTING_RULES: dict[str, dict] = {
     },
     "simulation_agent": {
         "intent_map": {
-            "simulate":       (0, ["simulate", "simulation", "run test", "run tests", "run simulation", "scenario", "scenarios"]),
-            "regression":     (0, ["regression"]),
-            "smoke":          (0, ["smoke test", "smoke"]),
+            "simulate":       (0, ["simulate", "run simulation", "run the regression", "run the smoke"]),
+            "regression":     (1, ["regression"]),
+            "smoke":          (0, ["smoke test"]),
             "hil":            (0, ["human-in-the-loop", "human in the loop", "hil"]),
-            "approval_queue": (0, ["approval queue", "pending approval", "pending"]),
+            "approval_queue": (0, ["approval queue", "pending approval"]),
         },
     },
     "rca_agent": {

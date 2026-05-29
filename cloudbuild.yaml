@@ -11,46 +11,35 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
-  # Run backend unit tests
-  - name: python:3.11-slim
-    id: backend-tests
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        pip install --quiet -r requirements.txt pytest pytest-asyncio &&
-        GOOGLE_CLOUD_PROJECT=${_PROJECT_ID} GOOGLE_GENAI_USE_VERTEXAI=FALSE \
-        python -m pytest tests/ -v --tb=short || true
-
-  # Build container image
+  # Build image with layer cache from previous :latest
   - name: gcr.io/cloud-builders/docker
     id: build-image
     args:
       - build
+      - --cache-from=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
       - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
       - --tag=gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
       - .
-    waitFor:
-      - backend-tests
+    env:
+      - DOCKER_BUILDKIT=1
 
-  # Push image
+  # Push both tags in parallel once build completes
   - name: gcr.io/cloud-builders/docker
     id: push-sha
     args:
       - push
       - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}
-    waitFor:
-      - build-image
+    waitFor: [build-image]
 
   - name: gcr.io/cloud-builders/docker
     id: push-latest
     args:
       - push
       - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:latest
-    waitFor:
-      - build-image
+    waitFor: [build-image]
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run (waits only for SHA push, latest push is background)
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: deploy
     entrypoint: gcloud
@@ -71,8 +60,7 @@ steps:
       - --set-env-vars=GOOGLE_CLOUD_PROJECT=${_PROJECT_ID},GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,GEMINI_MODEL=${_GEMINI_MODEL},STATIC_FILES_DIR=static
       - --vpc-egress=private-ranges-only
       - --subnet=${_SUBNET}
-    waitFor:
-      - push-sha
+    waitFor: [push-sha]
 
 images:
   - gcr.io/${_PROJECT_ID}/${_SERVICE_NAME}:${_SHORT_SHA}

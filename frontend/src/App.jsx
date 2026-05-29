@@ -167,63 +167,102 @@ function TabNav({ active, onChange }) {
 // ─── Bottom chat bar ───────────────────────────────────────────────────────────
 const CHIPS_BY_TAB = {
   workspace:  ['Show dashboard', 'List P0 failures', 'PT-BR coverage', 'Draft Buganizer ticket'],
-  runtests:   ['Run PT-BR regression', 'Show HIL queue', 'Retry with patch', 'Other locales affected?'],
+  runtests:   ['Run PT-BR regression suite', 'Show HIL approval queue', 'Retry failing tests with patch', 'Other locales affected?'],
   rca:        ['Generate RCA report', 'Approve & file issue', 'Compare screenshots', 'Check bundle diff'],
   testgen:    ['Night Mode test suite', 'Show generated tests', 'Which suites need tests?'],
   builds:     ['Show all builds', 'Show blockers', 'Nest Hub test status', 'AR-SA firmware status'],
 }
 
-function ConvModal({ messages, onClose }) {
-  const bodyRef = useRef(null)
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
-  }, [messages])
-  return (
-    <div className="overlay-bg" onClick={onClose}>
-      <div className="conv-modal" onClick={e => e.stopPropagation()}>
-        <div className="conv-modal-header">
-          <span>Full Conversation</span>
-          <button className="overlay-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="conv-modal-body" ref={bodyRef}>
-          {messages.length === 0
-            ? <div style={{ color: 'var(--text2)', textAlign: 'center', padding: 24 }}>No conversation yet — ask something below!</div>
-            : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)
-          }
-        </div>
-      </div>
-    </div>
-  )
+const CHIP_MESSAGES_BY_TAB = {
+  runtests: {
+    'Run PT-BR regression suite': 'Run the PT-BR Home Screen regression suite for Nest Hub Sprint 43 firmware (4.1.0.12-rc3) across all PT-BR string key scenarios',
+    'Show HIL approval queue': 'Show the HIL approval queue — which Sprint 43 test failures are currently blocked awaiting human-in-the-loop decision?',
+    'Retry failing tests with patch': 'Retry the failing PT-BR test scenarios after applying the proposed fix: add hs_greeting_morning, hs_weather_label, and hs_calendar_today to pt-BR.strings',
+    'Other locales affected?': 'Which locales other than PT-BR are affected by missing home screen string keys in the Sprint 43 Nest Hub build? Check ar-SA, de-DE, fr-FR, ja-JP, ko-KR across the same suite.',
+  },
 }
 
-function BottomChat({ onSend, loading, lastText, activeTab, onOpenConv }) {
+function ChatDrawer({ onSend, loading, lastText, activeTab, messages, chipContext }) {
+  const [expanded, setExpanded] = useState(false)
+  const [drawerH, setDrawerH] = useState(320)
   const [input, setInput] = useState('')
+  const bodyRef = useRef(null)
   const chips = CHIPS_BY_TAB[activeTab] || []
-  const submit = (txt) => {
-    const t = (txt || input).trim()
+
+  const submit = (txt, isChip = false) => {
+    let t = (txt || input).trim()
     if (!t || loading) return
+    if (isChip) {
+      const tabSpecific = CHIP_MESSAGES_BY_TAB[activeTab]?.[t]
+      if (chipContext && tabSpecific) {
+        t = `${chipContext}\n\n${tabSpecific}`
+      } else if (tabSpecific) {
+        t = tabSpecific
+      } else if (chipContext) {
+        t = `${chipContext}\n\n${t}`
+      }
+    }
     onSend(t)
     setInput('')
   }
   const onKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }
+
+  const startDrag = useCallback((e) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = drawerH
+    const onMove = (ev) => {
+      const newH = Math.max(100, Math.min(Math.floor(window.innerHeight * 0.72), startH + (startY - ev.clientY)))
+      setDrawerH(newH)
+      setExpanded(true)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [drawerH])
+
+  useEffect(() => {
+    if (expanded && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [messages, expanded])
+
   return (
-    <div className="bottom-chat">
-      {lastText && (
-        <div className="bc-last-msg">
-          <div className="bc-mini-avatar">
-            <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg>
+    <div className="chat-drawer" style={expanded ? { height: drawerH } : {}}>
+      {/* Drag + toggle handle */}
+      <div className="drawer-handle" onMouseDown={startDrag}>
+        <div className="drawer-grip-zone">
+          <div className="drawer-grip" />
+        </div>
+        <div className="drawer-title-row" onClick={() => setExpanded(e => !e)}>
+          <div className="dhc-avatar">
+            <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg>
           </div>
-          <span className="bc-alabel">LocaTest AI</span>
-          <span className="bc-preview">{lastText.slice(0, 140)}{lastText.length > 140 ? '…' : ''}</span>
-          <div className="bc-history-btn" onClick={onOpenConv} style={{ cursor: 'pointer' }}>Full conversation ↑</div>
+          <span className="dhc-label">LocaTest AI</span>
+          {!expanded && <span className="dhc-preview">{lastText ? lastText.slice(0, 110) + (lastText.length > 110 ? '…' : '') : 'Ask about this QA session — failures, root cause, test coverage…'}</span>}
+          {expanded && <span className="dhc-badge">{messages.length} messages</span>}
+          <div className={`dhc-toggle${expanded ? ' flipped' : ''}`}>
+            <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 15l-6-6-6 6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Conversation history — only when expanded */}
+      {expanded && (
+        <div className="drawer-body" ref={bodyRef}>
+          {messages.length === 0
+            ? <div className="drawer-empty">No conversation yet — ask something below!</div>
+            : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)
+          }
         </div>
       )}
+
+      {/* Input row — always visible */}
       <div className="bc-input-row">
         <div className="bc-chips">
           {chips.map(c => (
-            <div key={c} className="bc-chip" onClick={() => submit(c)}>
-              {c}
-            </div>
+            <div key={c} className="bc-chip" onClick={() => submit(c, true)}>{c}</div>
           ))}
         </div>
         <div className="bc-divider" />
@@ -436,7 +475,7 @@ function SimCard({ data }) {
     <div className="phase-block">
       <div className="phase-header done-ph">
         <div className="ph-icon done"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>
-        <span className="ph-title">Simulation Result — {s.suite}</span>
+        <span className="ph-title">Test Run Result — {s.suite}</span>
         <span className="ph-chip done">Complete</span>
       </div>
       <div className="phase-body">
@@ -793,30 +832,264 @@ function WorkspaceTab({ sessionId, userId, onTabChange }) {
 
 // ─── Simulation Tab ────────────────────────────────────────────────────────────
 const SCENARIOS = [
-  { id: 'LOC-SIM-001', name: 'PT-BR Regression', locale: 'pt-BR', status: 'fail', hil: true },
-  { id: 'LOC-SIM-002', name: 'AR-SA Smoke', locale: 'ar-SA', status: 'pass', dur: '1:12s' },
-  { id: 'LOC-RG-11198', name: 'PT-BR Checkout — "Place Order" untranslated', locale: 'pt-BR', status: 'fail', hil: false },
-  { id: 'LOC-RG-11199', name: 'Checkout Summary Header — PT-BR', locale: 'pt-BR', status: 'fail', hil: false },
-  { id: 'LOC-RG-11200', name: 'Payment Method Label — PT-BR', locale: 'pt-BR', status: 'fail', hil: false },
-  { id: 'LOC-SM-04821', name: 'Login Smoke — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:42s' },
-  { id: 'LOC-SM-04822', name: 'Home Screen Greeting — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:58s' },
-  { id: 'LOC-SM-04823', name: 'Assistant UI — PT-BR', locale: 'pt-BR', status: 'pass', dur: '1:05s' },
-  { id: 'LOC-NT-11201', name: 'Thermostat RTL Layout — AR-SA', locale: 'ar-SA', status: 'fail', hil: true },
-  { id: 'LOC-RG-11204', name: 'RTL Layout — AR-SA Regression', locale: 'ar-SA', status: 'queued' },
+  { id: 'LOC-SIM-001', name: 'PT-BR Home Screen Regression', locale: 'pt-BR', status: 'fail', hil: true, suite: 'Home Screen & Ambient Display' },
+  { id: 'LOC-SIM-002', name: 'AR-SA Smoke Test Suite', locale: 'ar-SA', status: 'pass', dur: '1:12s', suite: 'Google Assistant UI' },
+  { id: 'LOC-RG-11198', name: 'Greeting string untranslated (pt-BR)', locale: 'pt-BR', status: 'fail', hil: false, suite: 'Home Screen & Ambient Display' },
+  { id: 'LOC-RG-11199', name: 'Weather label missing (pt-BR)', locale: 'pt-BR', status: 'fail', hil: false, suite: 'Home Screen & Ambient Display' },
+  { id: 'LOC-RG-11200', name: 'Calendar "Today" untranslated (pt-BR)', locale: 'pt-BR', status: 'fail', hil: false, suite: 'Home Screen & Ambient Display' },
+  { id: 'LOC-SM-04821', name: 'Login Smoke — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:42s', suite: 'Device Settings & Onboarding' },
+  { id: 'LOC-SM-04822', name: 'Home Screen Greeting — PT-BR', locale: 'pt-BR', status: 'pass', dur: '0:58s', suite: 'Home Screen & Ambient Display' },
+  { id: 'LOC-SM-04823', name: 'Assistant Voice Query — PT-BR', locale: 'pt-BR', status: 'pass', dur: '1:05s', suite: 'Google Assistant UI' },
+  { id: 'LOC-NT-11201', name: 'Thermostat RTL Layout Overflow — AR-SA', locale: 'ar-SA', status: 'fail', hil: true, suite: 'Temperature Control UI' },
+  { id: 'LOC-RG-11204', name: 'RTL Layout Regression — AR-SA', locale: 'ar-SA', status: 'queued', suite: 'Temperature Control UI' },
 ]
 
-function SimulationTab({ sessionId, userId, onTabChange }) {
+const SCENARIO_DATA = {
+  'LOC-SIM-001': {
+    module: 'Home Screen & Ambient Display · PT-BR Regression',
+    steps: [
+      { n: 1, action: 'Initialize test runner for pt-BR locale', result: 'Locale set: pt-BR, device: Nest Hub 4.1.0.12-rc3, lang tag confirmed', status: 'pass' },
+      { n: 2, action: 'Navigate to Home Screen', result: 'Home Screen loaded. DOM ready in 840ms.', status: 'pass' },
+      { n: 3, action: 'Verify hs_greeting_morning string', result: '✗ Found: "Good morning" — Expected: "Bom dia"', status: 'fail', screenshot: { actual: '"Good morning"', expected: '"Bom dia"', key: 'hs_greeting_morning', screen: 'Home Screen · Morning Greeting' } },
+      { n: 4, action: 'Verify hs_weather_label string', result: '✗ Found: "Weather" — Expected: "Tempo"', status: 'fail', screenshot: { actual: '"Weather"', expected: '"Tempo"', key: 'hs_weather_label', screen: 'Home Screen · Weather Widget' } },
+      { n: 5, action: 'Verify hs_calendar_today string', result: '✗ Found: "Today" — Expected: "Hoje"', status: 'fail', screenshot: { actual: '"Today"', expected: '"Hoje"', key: 'hs_calendar_today', screen: 'Home Screen · Calendar' } },
+      { n: 6, action: 'Verify date/time localisation format', result: '⏭ Skipped — upstream failure in step 3', status: 'skip' },
+    ],
+    bundle: {
+      locale: '"pt-BR"', bundle_version: '"4.1.0.12-sprint43"', keys_loaded: '18,247', keys_missing: '4',
+      keys: [
+        { key: 'hs_greeting_morning', value: 'MISSING', status: 'missing' },
+        { key: 'hs_greeting_afternoon', value: 'MISSING', status: 'missing' },
+        { key: 'hs_weather_label', value: 'MISSING', status: 'missing' },
+        { key: 'hs_calendar_today', value: 'MISSING', status: 'missing' },
+        { key: 'hs_rtl_enabled', value: '"false"', status: 'ok' },
+        { key: 'hs_clock_format', value: '"HH:mm"', status: 'ok' },
+      ],
+    },
+    variables: [
+      { key: 'currentLocale', value: '"pt-BR"', status: 'ok' },
+      { key: 'elementText', value: '"Good morning"', status: 'missing' },
+      { key: 'expectedText', value: '"Bom dia"', status: 'ok' },
+      { key: 'translationKey', value: '"hs_greeting_morning"', status: 'ok' },
+      { key: 'keyExists(pt-BR)', value: 'false', status: 'missing' },
+      { key: 'fallbackLocale', value: '"en-US"', status: 'warn' },
+      { key: 'bundleLoadedAt', value: '"2026-05-29T04:12:00Z"', status: 'ok' },
+    ],
+    confidence: { rootCause: 97, fix: 94 },
+    screenshots: [
+      { label: 'Morning Greeting', screen: 'Home Screen', wrong: '"Good morning"', right: '"Bom dia"', key: 'hs_greeting_morning', type: 'string' },
+      { label: 'Weather Widget', screen: 'Home Screen', wrong: '"Weather"', right: '"Tempo"', key: 'hs_weather_label', type: 'string' },
+      { label: 'Calendar Block', screen: 'Home Screen', wrong: '"Today"', right: '"Hoje"', key: 'hs_calendar_today', type: 'string' },
+    ],
+    reasoning: [
+      { phase: 'Observation', icon: '👁', text: 'Home Screen displayed 3 untranslated strings in pt-BR locale: hs_greeting_morning, hs_weather_label, hs_calendar_today. All show en-US fallback values.', status: 'done' },
+      { phase: 'Hypothesis', icon: '💡', text: 'Missing string keys in pt-BR.strings bundle for Sprint 43. Likely caused by incomplete l10n sync during branch cut from main.', status: 'done' },
+      { phase: 'Verification', icon: '🔍', text: 'Queried string bundle manifest via BundleInspector API. Confirmed: 4 keys added to en-US.strings in Sprint 43 are absent from pt-BR.strings. No open translation PR in Gerrit queue for these keys.', status: 'done' },
+      { phase: 'Root Cause', icon: '🎯', text: 'l10n-sprint43 branch was cut from main before the PT-BR translator upload completed. The 4 new home screen string keys (hs_greeting_morning, hs_greeting_afternoon, hs_weather_label, hs_calendar_today) were never submitted to the PT-BR bundle.', status: 'done' },
+      { phase: 'Proposed Fix', icon: '🔧', text: 'Add 4 missing translations to pt-BR.strings: hs_greeting_morning→"Bom dia", hs_greeting_afternoon→"Boa tarde", hs_weather_label→"Tempo", hs_calendar_today→"Hoje". Rebuild l10n-sprint43 branch and re-run regression.', status: 'done' },
+    ],
+  },
+  'LOC-RG-11198': {
+    module: 'Home Screen & Ambient Display · Greeting String',
+    steps: [
+      { n: 1, action: 'Set locale to pt-BR, navigate to Home Screen', result: 'Home Screen loaded with lang="pt-BR"', status: 'pass' },
+      { n: 2, action: 'Assert hs_greeting_morning text content', result: '✗ Actual: "Good morning" | Expected: "Bom dia"', status: 'fail', screenshot: { actual: '"Good morning"', expected: '"Bom dia"', key: 'hs_greeting_morning', screen: 'Home Screen · Greeting' } },
+      { n: 3, action: 'Check en-US fallback chain', result: 'Confirmed: key missing in pt-BR → fallback triggered to en-US', status: 'fail' },
+      { n: 4, action: 'Capture failure screenshot', result: 'Screenshot saved to artifacts/LOC-RG-11198-fail.png', status: 'pass' },
+    ],
+    bundle: {
+      locale: '"pt-BR"', bundle_version: '"4.1.0.12-sprint43"', keys_loaded: '18,247', keys_missing: '1',
+      keys: [
+        { key: 'hs_greeting_morning', value: 'MISSING', status: 'missing' },
+        { key: 'hs_greeting_evening', value: '"Boa noite"', status: 'ok' },
+        { key: 'hs_greeting_night', value: '"Boa noite"', status: 'ok' },
+      ],
+    },
+    variables: [
+      { key: 'currentLocale', value: '"pt-BR"', status: 'ok' },
+      { key: 'elementText', value: '"Good morning"', status: 'missing' },
+      { key: 'expectedText', value: '"Bom dia"', status: 'ok' },
+      { key: 'translationKey', value: '"hs_greeting_morning"', status: 'ok' },
+      { key: 'keyExists(pt-BR)', value: 'false', status: 'missing' },
+      { key: 'fallbackTriggered', value: 'true', status: 'warn' },
+    ],
+    confidence: { rootCause: 99, fix: 97 },
+    screenshots: [
+      { label: 'Greeting String Failure', screen: 'Home Screen', wrong: '"Good morning" (en-US fallback)', right: '"Bom dia" (expected)', key: 'hs_greeting_morning', type: 'string' },
+    ],
+    reasoning: [
+      { phase: 'Observation', icon: '👁', text: 'Greeting string hs_greeting_morning displays en-US value "Good morning" instead of pt-BR "Bom dia".', status: 'done' },
+      { phase: 'Root Cause', icon: '🎯', text: 'String key hs_greeting_morning missing from pt-BR.strings bundle in Sprint 43 build. Direct subset of LOC-SIM-001 root cause.', status: 'done' },
+      { phase: 'Fix', icon: '🔧', text: 'Add hs_greeting_morning = "Bom dia" to pt-BR.strings and rebuild.', status: 'done' },
+    ],
+  },
+  'LOC-NT-11201': {
+    module: 'Temperature Control UI · AR-SA RTL',
+    steps: [
+      { n: 1, action: 'Initialize ar-SA locale, navigate to Thermostat Control', result: 'Locale: ar-SA, device: Nest Thermostat 6.4.0.3-rc1', status: 'pass' },
+      { n: 2, action: 'Assert RTL layout engine is active', result: '✗ Layout direction: LTR — Expected: RTL', status: 'fail', screenshot: { actual: 'LTR layout (left-to-right)', expected: 'RTL layout (right-to-left)', key: 'rtl_layout_enabled', screen: 'Thermostat Control' } },
+      { n: 3, action: 'Verify temperature label position (right-aligned for RTL)', result: '✗ Label positioned left — Expected: right', status: 'fail' },
+      { n: 4, action: 'Verify degree symbol: °م vs °C', result: '✗ Found: "23°C" — Expected: "۲۳°م"', status: 'fail', screenshot: { actual: '"23°C" (Latin)', expected: '"۲۳°م" (Arabic)', key: 'temp_unit_symbol', screen: 'Thermostat Display' } },
+      { n: 5, action: 'Verify Arabic-Indic digit rendering', result: '⏭ Skipped — upstream RTL failure blocks digit test', status: 'skip' },
+    ],
+    bundle: {
+      locale: '"ar-SA"', bundle_version: '"6.4.0.3-sprint43"', keys_loaded: '14,891', keys_missing: '0',
+      keys: [
+        { key: 'rtl_layout_enabled', value: '"false" (should be true)', status: 'missing' },
+        { key: 'temp_unit_symbol', value: '"°C" (should be °م)', status: 'missing' },
+        { key: 'locale_digits_mode', value: '"western" (should be arabic-indic)', status: 'missing' },
+        { key: 'temp_label_ar_SA', value: '"درجة الحرارة"', status: 'ok' },
+      ],
+    },
+    variables: [
+      { key: 'currentLocale', value: '"ar-SA"', status: 'ok' },
+      { key: 'layoutDirection', value: '"ltr"', status: 'missing' },
+      { key: 'expectedDirection', value: '"rtl"', status: 'ok' },
+      { key: 'tempDisplayValue', value: '"23°C"', status: 'missing' },
+      { key: 'expectedTempValue', value: '"۲۳°م"', status: 'ok' },
+      { key: 'rtlEngineVersion', value: '"2.1.4 (outdated)"', status: 'warn' },
+      { key: 'RTL_CAPABLE_flag', value: 'false', status: 'missing' },
+    ],
+    confidence: { rootCause: 91, fix: 88 },
+    screenshots: [
+      { label: 'Temperature Display', screen: 'Thermostat Control', wrong: '"23°C" (LTR, Latin)', right: '"۲۳°م" (RTL, Arabic)', key: 'temp_unit_symbol', type: 'rtl' },
+      { label: 'Layout Direction', screen: 'Thermostat Control', wrong: 'Left-to-Right layout', right: 'Right-to-Left layout', key: 'rtl_layout_enabled', type: 'layout' },
+    ],
+    reasoning: [
+      { phase: 'Observation', icon: '👁', text: 'Thermostat Control screen uses LTR layout for ar-SA locale. Temperature shows Latin degree symbol (°C) instead of Arabic (°م). Numbers are Western digits (23) not Arabic-Indic (۲۳).', status: 'done' },
+      { phase: 'Hypothesis', icon: '💡', text: 'RTL layout engine flag not set for ThermostatControlView. This component may have been rewritten and lost its RTL capability registration.', status: 'done' },
+      { phase: 'Verification', icon: '🔍', text: 'Inspected ThermostatControlView component registration in ComponentManifest.xml (CL #4429183, Sprint 42 rewrite). RTL_CAPABLE flag is false. All other view components have RTL_CAPABLE=true.', status: 'done' },
+      { phase: 'Root Cause', icon: '🎯', text: 'ThermostatControlView was fully rewritten in Sprint 42 (CL #4429183) and the RTL_CAPABLE flag was not migrated from the legacy ThermostatView to the new component definition. RTL layout engine skips views without this flag.', status: 'done' },
+      { phase: 'Proposed Fix', icon: '🔧', text: 'Set RTL_CAPABLE=true in ThermostatControlView ComponentManifest.xml. Update temp formatter: use Arabic-Indic digits (١٢٣) and Arabic degree symbol (°م) when locale=ar-SA. Cherry-pick to l10n-sprint43.', status: 'done' },
+    ],
+  },
+}
+
+function getScenarioData(sc) {
+  return SCENARIO_DATA[sc?.id] || {
+    module: `${sc?.suite || 'Regression'} · ${sc?.locale}`,
+    steps: [
+      { n: 1, action: `Initialize test runner for ${sc?.locale} locale`, result: `Locale: ${sc?.locale}, device: Nest Hub 4.1.0.12-rc3`, status: 'pass' },
+      { n: 2, action: 'Execute test scenario', result: sc?.status === 'pass' ? '✓ All assertions passed' : '✗ Assertion failure detected', status: sc?.status || 'pass' },
+      sc?.status === 'pass' ? { n: 3, action: 'Verify string localisation', result: 'All string keys present and correctly translated', status: 'pass' } : { n: 3, action: 'Capture failure artifacts', result: 'Screenshot and variable dump saved to test artifacts', status: sc?.status === 'fail' ? 'fail' : 'pass' },
+    ].filter(Boolean),
+    bundle: { locale: `"${sc?.locale}"`, bundle_version: '"4.1.0.12-sprint43"', keys_loaded: '18,247', keys_missing: '0', keys: [] },
+    variables: [
+      { key: 'currentLocale', value: `"${sc?.locale}"`, status: 'ok' },
+      { key: 'testStatus', value: `"${sc?.status}"`, status: sc?.status === 'fail' ? 'missing' : 'ok' },
+      { key: 'duration', value: sc?.dur ? `"${sc.dur}"` : '"--"', status: 'ok' },
+    ],
+    confidence: { rootCause: 82, fix: 78 },
+    screenshots: sc?.status === 'pass' ? [] : [{ label: 'Test Failure', screen: sc?.suite || 'Device Screen', wrong: 'Actual (see artifacts)', right: 'Expected (from spec)', key: 'unknown', type: 'string' }],
+    reasoning: [
+      { phase: 'Observation', icon: '👁', text: `Test scenario ${sc?.id} executed for ${sc?.locale} locale on ${sc?.suite || 'device'}.`, status: 'done' },
+      { phase: 'Result', icon: '🎯', text: sc?.status === 'pass' ? 'All assertions passed. No localisation issues found for this scenario.' : 'Assertion failure detected. Agent recommends manual inspection of string bundle and device screenshot.', status: 'done' },
+    ],
+  }
+}
+
+function LiveRunPanel({ scenarios, onSelect }) {
+  const passing = scenarios.filter(s => s.status === 'pass').length
+  const failing = scenarios.filter(s => s.status === 'fail').length
+  const queued = scenarios.filter(s => s.status === 'queued').length
+  const currentlyRunning = scenarios.find(s => s.status === 'queued')
+  return (
+    <div className="live-run-panel">
+      <div className="lrp-header">
+        <div>
+          <div className="lrp-title">Live Test Execution</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>1,089 / 1,247 complete · PT-BR &amp; AR-SA Regression · Sprint 43</div>
+        </div>
+        <div className="lrp-stats">
+          {[['Passed', passing, 'var(--g-green)'], ['Failed', failing, 'var(--g-red)'], ['Queued', queued, 'var(--text3)'], ['HIL', 2, 'var(--hil)']].map(([k, v, c]) => (
+            <div key={k} className="lrp-stat">
+              <span className="lrp-stat-val" style={{ color: c }}>{v}</span>
+              <span className="lrp-stat-label">{k}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="lrp-progress">
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>
+          <span>Overall progress</span>
+          <span style={{ color: failing > 0 ? 'var(--g-red)' : 'var(--g-green)', fontWeight: 600 }}>{failing} failures · 2 HIL blocks</span>
+        </div>
+        <div style={{ height: 8, background: '#f1f3f4', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+          <div style={{ width: `${(passing / Math.max(scenarios.length, 1) * 100).toFixed(0)}%`, background: 'var(--g-green)', transition: 'width .6s' }} />
+          <div style={{ width: `${(failing / Math.max(scenarios.length, 1) * 100).toFixed(0)}%`, background: 'var(--g-red)' }} />
+          <div style={{ flex: 1, background: '#dadce0' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 11, color: 'var(--text2)' }}>
+          {[['Pass', 'var(--g-green)'], ['Fail', 'var(--g-red)'], ['Queued', '#dadce0']].map(([label, bg]) => (
+            <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: bg, display: 'inline-block' }} />{label}</span>
+          ))}
+        </div>
+      </div>
+      {currentlyRunning && (
+        <div className="lrp-current">
+          <div className="lrp-current-label">Currently Executing</div>
+          <div className="lrp-current-item">
+            <div className="spinner" />
+            <div className="lrp-current-body">
+              <div className="lrp-current-id">{currentlyRunning.id}</div>
+              <div className="lrp-current-name">{currentlyRunning.name}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{currentlyRunning.suite}</div>
+            </div>
+            <span className="lrp-current-locale">{currentlyRunning.locale}</span>
+          </div>
+        </div>
+      )}
+      <div className="lrp-scroll">
+        <div className="lrp-section-label">All Scenarios — Click to inspect</div>
+        <div className="lrp-grid">
+          {scenarios.map(s => (
+            <div key={s.id} className={`lrp-cell lrpc-${s.status === 'pass' ? 'pass' : s.status === 'fail' ? 'fail' : s.hil ? 'hil' : 'queue'}`} onClick={() => onSelect(s)} title={s.name}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="lrpc-id">{s.id}</div>
+                <div className="lrpc-name">{s.name.length > 32 ? s.name.slice(0, 32) + '…' : s.name}</div>
+                <div style={{ fontSize: 10, opacity: .7, marginTop: 2 }}>{s.locale}</div>
+              </div>
+              <div className="lrpc-status">{s.status === 'pass' ? '✓' : s.status === 'fail' ? '✗' : s.hil ? '!' : '…'}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const SCENARIO_TO_ISSUE = {
+  'LOC-SIM-001': 'b/337821049', 'LOC-RG-11198': 'b/337821049',
+  'LOC-RG-11199': 'b/337821049', 'LOC-RG-11200': 'b/337821049',
+  'LOC-NT-11201': 'b/337821050', 'LOC-RG-11204': 'b/337821050',
+}
+
+function SimulationTab({ sessionId, userId, onTabChange, setSelectedIssueId, setChipContext }) {
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('All')
-  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+  const { messages, loading, send } = useAgent(sessionId, userId)
   const [hilOpen, setHilOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const [debugTab, setDebugTab] = useState('exec')
   const debugRef = useRef(null)
+
   useEffect(() => {
     if (debugRef.current) debugRef.current.scrollTop = debugRef.current.scrollHeight
   }, [messages])
 
+  useEffect(() => {
+    return () => setChipContext?.(null)
+  }, [])
+
   const filtered = filter === 'All' ? SCENARIOS : filter === 'Pass' ? SCENARIOS.filter(s => s.status === 'pass') : filter === 'Fail' ? SCENARIOS.filter(s => s.status === 'fail') : SCENARIOS.filter(s => s.hil)
+  const scenarioData = selected ? getScenarioData(selected) : null
+
+  const selectScenario = (sc) => {
+    setSelected(sc)
+    setDebugTab('exec')
+    setChipContext?.(`Currently inspecting test run ${sc.id} — "${sc.name}" | locale: ${sc.locale} | suite: ${sc.suite} | status: ${sc.status}${sc.hil ? ' (HIL required)' : ''}.`)
+    send(`Analyze test run ${sc.id}: ${sc.name} (locale: ${sc.locale})`)
+  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -824,10 +1097,18 @@ function SimulationTab({ sessionId, userId, onTabChange }) {
       <div className="sim-left">
         <div className="run-controls">
           <div className="rc-buttons">
-            <button className="rc-btn secondary" onClick={() => { setFilter('All'); setRunning(true); send('Run all test scenarios for the pt-BR regression suite') }}><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All</button>
-            <button className="rc-btn secondary" onClick={() => setRunning(r => !r)}><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>{running ? 'Resume' : 'Pause'}</button>
-            <button className="rc-btn secondary" onClick={() => { const idx = filtered.findIndex(s => s.id === selected?.id); const next = filtered[idx + 1]; if (next) { setSelected(next); send(`Analyze scenario ${next.id}: ${next.name}`) } }}><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>Step</button>
-            <button className="rc-btn primary" onClick={() => { setSelected(null); setFilter('All'); setRunning(false) }}><svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop</button>
+            <button className="rc-btn secondary" onClick={() => { setFilter('All'); setRunning(true); setSelected(null); send('Run all test scenarios for the pt-BR and ar-SA regression suites') }}>
+              <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run All
+            </button>
+            <button className="rc-btn secondary" onClick={() => setRunning(r => !r)}>
+              <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>{running ? 'Resume' : 'Pause'}
+            </button>
+            <button className="rc-btn secondary" onClick={() => { const idx = filtered.findIndex(s => s.id === selected?.id); const next = filtered[idx + 1]; if (next) selectScenario(next) }}>
+              <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>Step
+            </button>
+            <button className="rc-btn primary" onClick={() => { setSelected(null); setFilter('All'); setRunning(false) }}>
+              <svg viewBox="0 0 24 24" style={{ fill: 'white' }}><path d="M19 13H5v-2h14v2z"/></svg>Stop
+            </button>
           </div>
           <div>
             <div className="progress-label">
@@ -848,13 +1129,14 @@ function SimulationTab({ sessionId, userId, onTabChange }) {
         </div>
         <div className="scenario-list">
           {filtered.map(sc => (
-            <div key={sc.id} className={`sc-item${selected?.id === sc.id ? ' active' : ''}`} onClick={() => { setSelected(sc); send(`Analyze scenario ${sc.id}: ${sc.name}`) }}>
+            <div key={sc.id} className={`sc-item${selected?.id === sc.id ? ' active' : ''}`} onClick={() => selectScenario(sc)}>
               <div className={`sc-status-icon ${sc.status === 'pass' ? 'sci-pass' : sc.status === 'fail' ? 'sci-fail' : sc.hil ? 'sci-hil' : 'sci-queued'}`}>
-                {sc.status === 'pass' ? '✓' : sc.status === 'fail' ? '✗' : sc.status === 'queued' ? '●●●' : '!'}
+                {sc.status === 'pass' ? '✓' : sc.status === 'fail' ? '✗' : sc.status === 'queued' ? '●' : '!'}
               </div>
               <div className="sc-body">
                 <div className="sci-id">{sc.id}</div>
                 <div className="sci-name">{sc.name}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>{sc.suite}</div>
               </div>
               <div className="sc-right">
                 <div className="sci-lang">{sc.locale}</div>
@@ -867,122 +1149,240 @@ function SimulationTab({ sessionId, userId, onTabChange }) {
         </div>
       </div>
 
-      {/* Right: detail */}
+      {/* Right: detail or live panel */}
       <div className="sim-right">
         {selected ? (
           <>
             <div className="sr-header">
               <div>
-                <div className="srh-id">{selected.id} · Regression · Home Screen Module</div>
+                <div className="srh-id">{selected.id} · {selected.suite}</div>
                 <div className="srh-title">{selected.name}</div>
                 <div className="srh-badges">
                   {selected.status === 'fail' && <span className="srh-badge srhb-red">Critical Failure</span>}
                   <span className="srh-badge srhb-blue">{selected.locale}</span>
                   <span className="srh-badge srhb-gray">Regression</span>
                   {selected.hil && <span className="srh-badge srhb-hil">⏸ Awaiting HIL Decision</span>}
+                  {selected.status === 'pass' && <span className="srh-badge" style={{ background: '#d1fae5', color: '#065f46' }}>Passed</span>}
                 </div>
               </div>
               {(() => {
-                const selIdx = selected ? filtered.findIndex(s => s.id === selected.id) : -1
+                const selIdx = filtered.findIndex(s => s.id === selected.id)
                 return (
                   <div className="srh-actions">
-                    <button className="btn-sm btn-outline" disabled={selIdx <= 0} onClick={() => { const p = filtered[selIdx - 1]; setSelected(p); send(`Analyze scenario ${p.id}: ${p.name}`) }}>← Prev</button>
-                    <button className="btn-sm btn-outline" disabled={selIdx >= filtered.length - 1} onClick={() => { const n = filtered[selIdx + 1]; setSelected(n); send(`Analyze scenario ${n.id}: ${n.name}`) }}>Next →</button>
-                    <button className="btn-sm btn-agent" onClick={() => onTabChange?.('rca')}>Generate RCA →</button>
+                    <button className="btn-sm btn-outline" disabled={selIdx <= 0} onClick={() => { const p = filtered[selIdx - 1]; selectScenario(p) }}>← Prev</button>
+                    <button className="btn-sm btn-outline" disabled={selIdx >= filtered.length - 1} onClick={() => { const n = filtered[selIdx + 1]; selectScenario(n) }}>Next →</button>
+                    <button className="btn-sm btn-agent" onClick={() => { setSelectedIssueId?.(SCENARIO_TO_ISSUE[selected?.id] || 'b/337821049'); onTabChange?.('rca') }}>Generate RCA →</button>
                   </div>
                 )
               })()}
             </div>
 
             <div className="debug-tabs">
-              <div className="dt-tab active">Execution Steps <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--g-red)', marginLeft: 5, marginBottom: 1 }} /></div>
-              <div className="dt-tab">Debug Inspector</div>
-              <div className="dt-tab">Screenshots</div>
-              <div className="dt-tab">Agent Reasoning</div>
+              {[['exec', 'Execution Steps', selected.status === 'fail'], ['inspector', 'Debug Inspector', false], ['screenshots', 'Screenshots', selected.status === 'fail'], ['reasoning', 'Agent Reasoning', false]].map(([id, label, dot]) => (
+                <div key={id} className={`dt-tab${debugTab === id ? ' active' : ''}`} onClick={() => setDebugTab(id)}>
+                  {label}
+                  {dot && <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--g-red)', marginLeft: 5, marginBottom: 1 }} />}
+                </div>
+              ))}
             </div>
 
-            <div className="sim-body">
-              {/* Execution timeline */}
-              <div className="exec-timeline">
-                <div className="etl-title">Test Execution</div>
-                {[
-                  { n: 1, action: 'Navigate to Home Screen', result: 'Loaded in PT-BR locale (lang="pt-BR")', status: 'pass' },
-                  { n: 2, action: 'Verify greeting string', result: '✗ Found: "Good morning" — Expected: "Bom dia"', status: 'fail' },
-                  { n: 3, action: 'Verify weather label', result: '✗ Found: "Cloudy" — Expected: "Nublado"', status: 'fail' },
-                  { n: 4, action: 'Verify date/time format', result: '⏭ Skipped — upstream failure', status: 'skip' },
-                ].map((s, i, arr) => (
-                  <div key={s.n} className="step-item" style={{ position: 'relative' }}>
-                    {i < arr.length - 1 && <div style={{ position: 'absolute', left: 13, top: 26, bottom: -12, width: 2, background: s.status === 'pass' ? '#d1fae5' : s.status === 'fail' ? '#fecaca' : 'var(--border2)', zIndex: 0 }} />}
-                    <div className={`step-num sn-${s.status}`} style={{ zIndex: 1 }}>{s.n}</div>
-                    <div className="step-body">
-                      <div className="step-action">{s.action}</div>
-                      <div className={`step-result${s.status !== 'skip' ? ` ${s.status}` : ''}`} style={s.status === 'skip' ? { color: 'var(--text3)' } : {}}>{s.result}</div>
-                      {s.status === 'fail' && (
-                        <div className="step-screenshot">
-                          <span className="ss-img-label">📸 Screenshot at failure point</span>
-                          <div style={{ background: '#1a1a2e', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: 8 }}>
-                            <div style={{ background: 'rgba(30,41,59,.8)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 4, padding: '3px 12px', fontFamily: 'monospace', fontSize: 10, color: '#94a3b8' }}>
-                              [ "Good morning" ] &lt;en-US fallback&gt;
+            {/* Execution Steps tab */}
+            {debugTab === 'exec' && (
+              <div className="sim-body">
+                <div className="exec-timeline">
+                  <div className="etl-title">Test Execution · {scenarioData.steps.length} steps</div>
+                  {scenarioData.steps.map((s, i, arr) => (
+                    <div key={s.n} className="step-item" style={{ position: 'relative' }}>
+                      {i < arr.length - 1 && <div style={{ position: 'absolute', left: 13, top: 26, bottom: -12, width: 2, background: s.status === 'pass' ? '#d1fae5' : s.status === 'fail' ? '#fecaca' : 'var(--border2)', zIndex: 0 }} />}
+                      <div className={`step-num sn-${s.status}`} style={{ zIndex: 1 }}>{s.n}</div>
+                      <div className="step-body">
+                        <div className="step-action">{s.action}</div>
+                        <div className={`step-result${s.status === 'fail' ? ' fail' : s.status === 'pass' ? ' pass' : ''}`} style={s.status === 'skip' ? { color: 'var(--text3)' } : {}}>{s.result}</div>
+                        {s.screenshot && (
+                          <div className="step-screenshot">
+                            <span className="ss-img-label">📸 Failure capture · {s.screenshot.screen}</span>
+                            <div style={{ background: '#1a1a2e', padding: 10, display: 'flex', gap: 8, position: 'relative' }}>
+                              <div style={{ flex: 1, background: 'rgba(234,67,53,.12)', border: '1px solid rgba(234,67,53,.3)', borderRadius: 5, padding: '6px 10px', fontFamily: 'Roboto Mono', fontSize: 10.5 }}>
+                                <div style={{ color: '#f87171', fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '.4px' }}>Actual</div>
+                                <div style={{ color: '#fca5a5' }}>{s.screenshot.actual}</div>
+                              </div>
+                              <div style={{ flex: 1, background: 'rgba(52,168,83,.12)', border: '1px solid rgba(52,168,83,.3)', borderRadius: 5, padding: '6px 10px', fontFamily: 'Roboto Mono', fontSize: 10.5 }}>
+                                <div style={{ color: '#4ade80', fontSize: 9, marginBottom: 3, textTransform: 'uppercase', letterSpacing: '.4px' }}>Expected</div>
+                                <div style={{ color: '#86efac' }}>{s.screenshot.expected}</div>
+                              </div>
+                              <div style={{ position: 'absolute', top: 5, right: 8, background: 'rgba(234,67,53,.85)', color: 'white', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace' }}>TRANSLATION MISSING · {s.screenshot.key}</div>
                             </div>
-                            <div style={{ position: 'absolute', top: 6, right: 8, background: 'rgba(234,67,53,.85)', color: 'white', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3, fontFamily: 'monospace' }}>TRANSLATION MISSING</div>
                           </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="debug-inspector" ref={debugRef}>
+                  <div className="di-section">
+                    <div className="dis-header">
+                      <span className="dis-title">Agent Confidence</span>
+                      <span className={`dis-badge ${scenarioData.confidence.rootCause >= 90 ? 'ok' : 'error'}`}>{scenarioData.confidence.rootCause >= 90 ? 'High' : 'Medium'}</span>
+                    </div>
+                    <div style={{ padding: '12px 14px' }}>
+                      {[['Root cause certainty', scenarioData.confidence.rootCause, 'var(--g-green)'], ['Fix proposal accuracy', scenarioData.confidence.fix, 'var(--g-blue)']].map(([k, v, c]) => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text2)', width: 170 }}>{k}</span>
+                          <div style={{ flex: 1, height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${v}%`, height: '100%', background: c, borderRadius: 3 }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: c }}>{v}%</span>
                         </div>
-                      )}
+                      ))}
                     </div>
                   </div>
-                ))}
+                  {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+                </div>
               </div>
+            )}
 
-              {/* Debug inspector */}
-              <div className="debug-inspector" ref={debugRef}>
-                <div className="di-section">
-                  <div className="dis-header">
-                    <span className="dis-title">String Bundle Inspector</span>
-                    <span className="dis-badge error">2 keys missing</span>
+            {/* Debug Inspector tab */}
+            {debugTab === 'inspector' && (
+              <div className="sim-body" style={{ overflow: 'auto' }}>
+                <div className="exec-timeline" style={{ width: '100%', maxWidth: 380 }}>
+                  <div className="etl-title">String Bundle Inspector</div>
+                  <div className="di-section">
+                    <div className="dis-header">
+                      <span className="dis-title">Bundle Meta</span>
+                      <span className={`dis-badge ${scenarioData.bundle.keys_missing !== '0' ? 'error' : 'ok'}`}>{scenarioData.bundle.keys_missing} missing</span>
+                    </div>
+                    <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
+                      <div className="kv-row"><span className="kv-key">locale</span><span className="kv-val ok">{scenarioData.bundle.locale}</span></div>
+                      <div className="kv-row"><span className="kv-key">bundle_version</span><span className="kv-val ok">{scenarioData.bundle.bundle_version}</span></div>
+                      <div className="kv-row"><span className="kv-key">keys_loaded</span><span className="kv-val ok">{scenarioData.bundle.keys_loaded}</span></div>
+                      <div className="kv-row"><span className="kv-key">keys_missing</span><span className="kv-val" style={{ color: scenarioData.bundle.keys_missing !== '0' ? '#f28b82' : '#81c995' }}>{scenarioData.bundle.keys_missing}</span></div>
+                    </div>
                   </div>
-                  <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
-                    <div className="kv-row"><span className="kv-key">locale</span><span className="kv-val ok">"pt-BR"</span></div>
-                    <div className="kv-row"><span className="kv-key">bundle_version</span><span className="kv-val ok">"4.1.0.12-sprint43"</span></div>
-                    <div style={{ height: 1, background: 'rgba(255,255,255,.07)', margin: '8px 0' }} />
-                    <div className="kv-row"><span className="kv-key">hs_weather_label</span><span className="kv-val ok">"Nublado" ✓</span></div>
-                    <div className="kv-row"><span className="kv-key">hs_greeting_morning</span><span className="kv-val missing">KEY NOT FOUND ✗</span></div>
-                    <div className="kv-row" style={{ marginLeft: 16 }}><span className="kv-key" style={{ color: '#f59e0b' }}>en-US fallback</span><span className="kv-val" style={{ color: '#fcd34d' }}>"Good morning"</span></div>
-                  </div>
-                </div>
-                <div className="di-section">
-                  <div className="dis-header">
-                    <span className="dis-title">Variable Watch</span>
-                    <span className="dis-badge ok">Live</span>
-                  </div>
-                  <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
-                    <div className="kv-row"><span className="kv-key">currentLocale</span><span className="kv-val ok">"pt-BR"</span></div>
-                    <div className="kv-row"><span className="kv-key">elementText</span><span className="kv-val missing">"Good morning"</span></div>
-                    <div className="kv-row"><span className="kv-key">expectedText</span><span className="kv-val ok">"Bom dia"</span></div>
-                    <div className="kv-row"><span className="kv-key">translationKey</span><span className="kv-val ok">"hs_greeting_morning"</span></div>
-                    <div className="kv-row"><span className="kv-key">keyExists(pt-BR)</span><span className="kv-val missing">false ✗</span></div>
-                    <div className="kv-row"><span className="kv-key">fallbackLocale</span><span className="kv-val" style={{ color: '#f59e0b' }}>"en-US"</span></div>
-                  </div>
-                </div>
-                <div className="di-section">
-                  <div className="dis-header">
-                    <span className="dis-title">Agent Confidence</span>
-                    <span className="dis-badge ok">High</span>
-                  </div>
-                  <div style={{ padding: '12px 14px' }}>
-                    {[['Root cause certainty', 97, 'var(--g-green)'], ['Fix proposal accuracy', 94, 'var(--g-blue)']].map(([k, v, c]) => (
-                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text2)', width: 170 }}>{k}</span>
-                        <div style={{ flex: 1, height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ width: `${v}%`, height: '100%', background: c, borderRadius: 3 }} />
-                        </div>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: c }}>{v}%</span>
+                  {scenarioData.bundle.keys.length > 0 && (
+                    <div className="di-section" style={{ marginTop: 12 }}>
+                      <div className="dis-header"><span className="dis-title">String Keys</span></div>
+                      <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
+                        {scenarioData.bundle.keys.map(k => (
+                          <div key={k.key} className="kv-row">
+                            <span className="kv-key">{k.key}</span>
+                            <span className={`kv-val${k.status === 'missing' ? ' missing' : k.status === 'ok' ? ' ok' : ''}`}>{k.status === 'missing' ? 'KEY NOT FOUND ✗' : k.value}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                  )}
+                </div>
+                <div className="debug-inspector" ref={debugRef}>
+                  <div className="etl-title" style={{ fontFamily: 'Google Sans', fontSize: 12, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 14 }}>Variable Watch</div>
+                  <div className="di-section">
+                    <div className="dis-header">
+                      <span className="dis-title">Runtime Variables</span>
+                      <span className={`dis-badge ${scenarioData.variables.some(v => v.status === 'missing') ? 'error' : 'ok'}`}>Live</span>
+                    </div>
+                    <div style={{ background: '#1a1a2e', padding: '12px 14px', fontFamily: 'Roboto Mono' }}>
+                      {scenarioData.variables.map(v => (
+                        <div key={v.key} className="kv-row">
+                          <span className="kv-key">{v.key}</span>
+                          <span className={`kv-val${v.status === 'missing' ? ' missing' : v.status === 'ok' ? ' ok' : ''}`} style={v.status === 'warn' ? { color: '#f59e0b' } : {}}>{v.value}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
               </div>
-            </div>
+            )}
+
+            {/* Screenshots tab */}
+            {debugTab === 'screenshots' && (
+              <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+                {scenarioData.screenshots.length === 0 ? (
+                  <div className="empty-state"><div className="empty-icon">📸</div><div className="empty-title">No failures to capture</div><div className="empty-sub">This scenario passed all assertions</div></div>
+                ) : (
+                  <>
+                    <div style={{ fontFamily: 'Google Sans', fontSize: 14, fontWeight: 600, color: 'var(--text2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '.5px' }}>Failure Screenshots · {selected.id}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      {scenarioData.screenshots.map((ss, idx) => (
+                        <div key={idx} style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border2)', background: 'var(--surface)' }}>
+                          <div style={{ background: '#1e1e2e', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                              <span style={{ fontFamily: 'Roboto Mono', fontSize: 12, color: '#8ab4f8' }}>📸 {ss.label}</span>
+                              <span style={{ marginLeft: 12, fontSize: 11, color: '#9aa0a6' }}>{ss.screen}</span>
+                            </div>
+                            <span style={{ fontFamily: 'Roboto Mono', fontSize: 10, color: '#f28b82', background: 'rgba(234,67,53,.15)', padding: '2px 8px', borderRadius: 5 }}>key: {ss.key}</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: '#303134' }}>
+                            <div style={{ background: '#1a1a2e', padding: 16 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f87171', display: 'inline-block' }} />Actual (Device Screen)
+                              </div>
+                              <div style={{ background: '#0f172a', borderRadius: 10, padding: 16, border: '1px solid rgba(234,67,53,.3)', minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, fontFamily: 'Roboto Mono' }}>Nest Hub · {selected.locale}</div>
+                                  <div style={{ background: '#1e293b', borderRadius: 6, padding: '8px 18px', border: '1px solid rgba(234,67,53,.5)' }}>
+                                    <div style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: '#fca5a5' }}>{ss.wrong}</div>
+                                    <div style={{ fontSize: 9, color: '#f87171', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.4px' }}>en-US fallback</div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 8, fontFamily: 'Roboto Mono', fontSize: 10, color: '#f28b82', background: 'rgba(234,67,53,.1)', padding: '4px 8px', borderRadius: 4 }}>
+                                ✗ Translation missing — showing fallback
+                              </div>
+                            </div>
+                            <div style={{ background: '#0d1b0d', padding: 16 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />Expected (from spec)
+                              </div>
+                              <div style={{ background: '#0a1a0a', borderRadius: 10, padding: 16, border: '1px solid rgba(52,168,83,.3)', minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontFamily: 'Roboto Mono' }}>Expected · {selected.locale}</div>
+                                  <div style={{ background: '#0f2d0f', borderRadius: 6, padding: '8px 18px', border: '1px solid rgba(52,168,83,.5)' }}>
+                                    <div style={{ fontFamily: 'Roboto Mono', fontSize: 13, color: '#86efac' }}>{ss.right}</div>
+                                    <div style={{ fontSize: 9, color: '#4ade80', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.4px' }}>correct translation</div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 8, fontFamily: 'Roboto Mono', fontSize: 10, color: '#4ade80', background: 'rgba(52,168,83,.1)', padding: '4px 8px', borderRadius: 4 }}>
+                                ✓ Expected from locale spec
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Agent Reasoning tab */}
+            {debugTab === 'reasoning' && (
+              <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+                <div style={{ fontFamily: 'Google Sans', fontSize: 14, fontWeight: 600, color: 'var(--text2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '.5px' }}>Agent Reasoning Chain · {selected.id}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {scenarioData.reasoning.map((r, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--agent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>{r.icon}</div>
+                      <div style={{ flex: 1, background: '#f8f9fa', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ fontFamily: 'Google Sans', fontSize: 12, fontWeight: 700, color: 'var(--agent)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>{r.phase}</div>
+                        <div style={{ fontSize: 13.5, color: 'var(--dark2)', lineHeight: 1.65 }}>{r.text}</div>
+                      </div>
+                      <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#d1fae5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#065f46', fontWeight: 700, flexShrink: 0 }}>✓</div>
+                    </div>
+                  ))}
+                  {messages.filter(m => m.type === 'agent').map((msg, i) => (
+                    <div key={`agent-${i}`} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#1a73e8,#4285f4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <svg viewBox="0 0 24 24" width={16} height={16}><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z" fill="white"/></svg>
+                      </div>
+                      <div style={{ flex: 1, background: 'var(--agent-ll)', border: '1px solid rgba(26,115,232,.2)', borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ fontFamily: 'Google Sans', fontSize: 12, fontWeight: 700, color: 'var(--agent)', marginBottom: 6 }}>Live Agent Response</div>
+                        <div style={{ fontSize: 13.5, color: 'var(--dark2)', lineHeight: 1.65 }}>{msg.text}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* HIL Intervention */}
             {selected.hil && (
@@ -992,7 +1392,7 @@ function SimulationTab({ sessionId, userId, onTabChange }) {
                   <span className="hi-title">Agent Decision Point — Your Input Required</span>
                   <div className="hi-badge">HIL</div>
                 </div>
-                <p className="hi-sub">Agent has identified a <strong>blocker failure</strong> with 97% certainty. The PT-BR string key is missing from the Sprint 43 bundle. Please choose how to proceed.</p>
+                <p className="hi-sub">Agent has identified a <strong>blocker failure</strong> with {scenarioData.confidence.rootCause}% certainty. Please choose how to proceed.</p>
                 <div className="hi-options">
                   {[['🐛', 'Mark as Bug', 'File to Buganizer with full RCA and proposed fix'], ['🔄', 'Retry with Patch', 'Inject the missing key and re-run to confirm fix'], ['✅', 'Override — Pass', 'Mark as known issue, continue with next scenario']].map(([icon, title, desc]) => (
                     <div key={title} className="hi-option" onClick={() => title === 'Mark as Bug' && setHilOpen(true)}>
@@ -1004,43 +1404,147 @@ function SimulationTab({ sessionId, userId, onTabChange }) {
                 </div>
                 <div className="hi-debug-tools">
                   {['Inspect DOM', 'Compare Screenshots', 'Check Bundle Diff', 'Run Partial Fix'].map(tool => (
-                    <div key={tool} className="hi-tool-btn">{tool}</div>
+                    <div key={tool} className="hi-tool-btn" onClick={() => send(`${tool} for scenario ${selected.id}`)}>{tool}</div>
                   ))}
                 </div>
               </div>
             )}
-
           </>
+        ) : running ? (
+          <LiveRunPanel scenarios={filtered} onSelect={selectScenario} />
         ) : (
-          <div className="empty-state"><div className="empty-icon">⚡</div><div className="empty-title">Select a scenario</div></div>
+          <div className="empty-state">
+            <div className="empty-icon">⚡</div>
+            <div className="empty-title">Select a scenario to inspect</div>
+            <div className="empty-sub">or click Run All to start execution</div>
+          </div>
         )}
       </div>
-      {hilOpen && <HilOverlay issue={{ id: 'b/337821049', title: `${selected.name} — Localization Failure`, severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'], description: 'Untranslated strings in PT-BR locale detected on Nest Hub Home Screen during Sprint 43 regression.' }} onClose={() => setHilOpen(false)} />}
+      {hilOpen && selected && <HilOverlay issue={{ id: 'b/337821049', title: `${selected.name} — Localization Failure`, severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199'], description: 'Untranslated strings detected during Sprint 43 regression.' }} onClose={() => setHilOpen(false)} />}
     </div>
   )
 }
 
 // ─── RCA & Issues Tab ──────────────────────────────────────────────────────────
 const BUGANIZER_ISSUES = [
-  { id: 'b/337821049', title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub firmware 4.1.0.12-rc3', severity: 'S2', component: 'Nest>Firmware>Localization>HomeScreen', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200'], description: 'Untranslated greeting, weather, and calendar strings detected on PT-BR Nest Hub.' },
-  { id: 'b/337821050', title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1', severity: 'S2', component: 'Nest>Firmware>Localization>ThermostatUI', status: 'DRAFT', approved: false, test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'], description: 'RTL layout engine not applied to temperature component.' },
+  {
+    id: 'b/337821049', status: 'DRAFT', severity: 'S2', priority: 'P0', approved: false,
+    locale: 'pt-BR', device: 'Nest Hub',
+    title: '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub firmware 4.1.0.12-rc3',
+    component: 'Nest>Firmware>Localization>HomeScreen',
+    test_case_ids: ['LOC-NH-11198', 'LOC-NH-11199', 'LOC-NH-11200', 'LOC-SIM-001'],
+    description: 'Untranslated greeting, weather, and calendar strings detected on PT-BR Nest Hub.',
+    rca: {
+      rcaId: 'RCA-2026-043-001', confidence: 97, sprint: 'Sprint 43',
+      title: 'PT-BR Nest Hub Home Screen — Sprint 43 String Keys',
+      rootCause: 'Release branch l10n-sprint43 is missing the PT-BR string bundle update. Strings hs_greeting_morning, hs_greeting_afternoon, hs_weather_label, and hs_calendar_today were added to en-US.strings in Sprint 43 but were not propagated to the PT-BR bundle pt-BR.strings. The app correctly detects the missing keys and falls back to the English locale — resulting in untranslated UI on all PT-BR Nest Hub devices.',
+      diffTitle: 'pt-BR.strings — 4 missing keys',
+      diffEn: ['hs_greeting_morning = "Good morning"', 'hs_greeting_afternoon = "Good afternoon"', 'hs_weather_label = "Weather"', 'hs_calendar_today = "Today"'],
+      diffLocale: ['hs_greeting_morning = ∅ MISSING', 'hs_greeting_afternoon = ∅ MISSING', 'hs_weather_label = ∅ MISSING', 'hs_calendar_today = ∅ MISSING'],
+      diffFix: ['+  hs_greeting_morning = "Bom dia";', '+  hs_greeting_afternoon = "Boa tarde";', '+  hs_weather_label = "Tempo";', '+  hs_calendar_today = "Hoje";'],
+      evidence: [['Greeting', 'Good morning', 'Bom dia'], ['Weather', 'Weather', 'Tempo'], ['Calendar', 'Today', 'Hoje']],
+      impact: [['LOC-NH-11198', 'Greeting string untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11199', 'Weather label untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11200', 'Calendar "Today" untranslated', 'P1', 'Nest Hub']],
+    },
+    bugFields: [
+      ['Title', '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3'],
+      ['Component', 'Nest > Firmware > Localization > HomeScreen'],
+      ['Severity', 'S2 — Major'], ['Sprint', 'Sprint 43'], ['Assignee', 'l10n-team@google.com'],
+    ],
+    comment: 'Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys (hs_greeting_morning, hs_greeting_afternoon, hs_weather_label, hs_calendar_today). Apply proposed diff to pt-BR.strings and rebuild the l10n-sprint43 branch to resolve.',
+  },
+  {
+    id: 'b/337821050', status: 'DRAFT', severity: 'S2', priority: 'P0', approved: false,
+    locale: 'ar-SA', device: 'Nest Thermostat',
+    title: '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1',
+    component: 'Nest>Firmware>Localization>ThermostatUI',
+    test_case_ids: ['LOC-NT-11201', 'LOC-NT-11202'],
+    description: 'RTL layout engine not applied to temperature component for ar-SA locale.',
+    rca: {
+      rcaId: 'RCA-2026-043-002', confidence: 91, sprint: 'Sprint 43',
+      title: 'AR-SA Nest Thermostat — RTL Layout Engine Not Applied',
+      rootCause: 'ThermostatControlView was fully rewritten in Sprint 42 (CL #4429183) and the RTL_CAPABLE flag was not migrated from the legacy component. RTL layout engine skips views without this flag, causing temperature labels, digit formatting, and control positioning to use LTR layout for all RTL locales including ar-SA.',
+      diffTitle: 'ComponentManifest.xml — RTL flag missing',
+      diffEn: ['<view name="ThermostatControlView">', '  RTL_CAPABLE=false  ← INCORRECT', '  locale_digits="western" ← INCORRECT', '  temp_format="°C"  ← INCORRECT', '</view>'],
+      diffLocale: ['<view name="LegacyThermostatView"> (Sprint 41)', '  RTL_CAPABLE=true ✓', '  locale_digits="auto" ✓', '  temp_format="locale_aware" ✓', '</view>'],
+      diffFix: ['+  RTL_CAPABLE=true', '+  locale_digits="arabic-indic" for ar-SA', '+  temp_format="°م" for ar-SA', '+  layout_gravity="end" for RTL'],
+      evidence: [['Temperature', '23°C (LTR)', '۲۳°م (RTL)'], ['Layout', 'Left-to-Right', 'Right-to-Left']],
+      impact: [['LOC-NT-11201', 'Temperature label RTL overflow', 'P0', 'Nest Thermostat'], ['LOC-NT-11202', 'Degree symbol localisation', 'P0', 'Nest Thermostat']],
+    },
+    bugFields: [
+      ['Title', '[AR-SA][P0] Temperature label RTL overflow on Nest Thermostat 6.4.0.3-rc1'],
+      ['Component', 'Nest > Firmware > Localization > ThermostatUI'],
+      ['Severity', 'S2 — Major'], ['Sprint', 'Sprint 43'], ['Assignee', 'rtl-eng@google.com'],
+    ],
+    comment: 'Root cause confirmed: ThermostatControlView (CL #4429183) missing RTL_CAPABLE flag. Set RTL_CAPABLE=true in ComponentManifest.xml, update temperature formatter for ar-SA digit/symbol localisation, and cherry-pick to l10n-sprint43.',
+  },
+  {
+    id: 'b/337821051', status: 'REVIEW', severity: 'S3', priority: 'P1', approved: false,
+    locale: 'de-DE', device: 'Nest Mini',
+    title: '[DE-DE][P1] Package delivery notification text truncated on Nest Mini 3.2.1.8-rc1',
+    component: 'Nest>Firmware>Localization>Notifications',
+    test_case_ids: ['LOC-NF-40102'],
+    description: 'German notification text overflows notification bubble for package delivery alerts.',
+    rca: {
+      rcaId: 'RCA-2026-043-003', confidence: 88, sprint: 'Sprint 43',
+      title: 'DE-DE Nest Mini — Notification Bubble Text Overflow',
+      rootCause: 'The German string for package delivery notification ("Paketlieferung erkannt — bitte Klingel prüfen") is 47% longer than the English equivalent ("Package delivery detected"). The notification bubble has a hardcoded max-width of 240px inherited from the en-US design spec. No text truncation or line-wrapping logic exists for non-English locales.',
+      diffTitle: 'NotificationView.xml — hardcoded width',
+      diffEn: ['<NotificationBubble', '  max_width="240px"  ← en-US hardcoded', '  text_overflow="clip"', '  wrap="false"', '/>'],
+      diffLocale: ['DE-DE text: "Paketlieferung erkannt"', '  rendered_width: 287px', '  overflow: 47px CLIPPED', '  visible_chars: ~78% of string'],
+      diffFix: ['+  max_width="auto"  or  locale_aware_width=true', '+  text_overflow="ellipsis"  for short titles', '+  wrap="true"  for notification body text', '+  max_lines="2" for overflow'],
+      evidence: [['Notification', '"Package de…" (clipped)', '"Paketlieferung erkannt — bitte Klingel prüfen"']],
+      impact: [['LOC-NF-40102', 'Package delivery text truncated', 'P1', 'Nest Mini']],
+    },
+    bugFields: [
+      ['Title', '[DE-DE][P1] Package delivery notification truncated on Nest Mini 3.2.1.8-rc1'],
+      ['Component', 'Nest > Firmware > Localization > Notifications'],
+      ['Severity', 'S3 — Moderate'], ['Sprint', 'Sprint 43'], ['Assignee', 'ui-layout@google.com'],
+    ],
+    comment: 'Root cause: NotificationBubble has hardcoded max-width=240px from en-US spec. German strings average 40% longer. Fix: use locale-aware dynamic width or add text-overflow/line-wrap for long-text locales (de-DE, fi-FI, etc.).',
+  },
 ]
 
-function RcaTab({ sessionId, userId, onTabChange }) {
-  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
-  const [selectedIssue, setSelectedIssue] = useState(BUGANIZER_ISSUES[0])
+function RcaTab({ sessionId, userId, onTabChange, selectedIssueId, setSelectedIssueId }) {
+  const { messages, loading, send } = useAgent(sessionId, userId)
+  const [selectedIssue, setSelectedIssue] = useState(() => BUGANIZER_ISSUES.find(b => b.id === selectedIssueId) || BUGANIZER_ISSUES[0])
   const [hilIssue, setHilIssue] = useState(null)
-  const [severity, setSeverity] = useState('S2')
+
+  useEffect(() => {
+    if (selectedIssueId) {
+      const found = BUGANIZER_ISSUES.find(b => b.id === selectedIssueId)
+      if (found) setSelectedIssue(found)
+    }
+  }, [selectedIssueId])
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      {/* Left: RCA report */}
+      {/* Issue list sidebar */}
+      <div className="rca-issues-list">
+        <div className="ril-header">RCA Reports <span className="ril-count">{BUGANIZER_ISSUES.length}</span></div>
+        {BUGANIZER_ISSUES.map(issue => (
+          <div key={issue.id} className={`ril-item${selectedIssue?.id === issue.id ? ' active' : ''}`} onClick={() => { setSelectedIssue(issue); setSelectedIssueId?.(issue.id) }}>
+            <div className="ril-top">
+              <span className={`ril-status ${issue.status === 'DRAFT' ? 'ril-draft' : 'ril-review'}`}>{issue.status}</span>
+              <span className="ril-confidence">{issue.rca.confidence}% conf</span>
+            </div>
+            <div className="ril-id">{issue.id}</div>
+            <div className="ril-title">{issue.title.length > 62 ? issue.title.slice(0, 62) + '…' : issue.title}</div>
+            <div className="ril-meta">
+              <span className={`ril-sev ${issue.severity === 'S2' ? 'rsev-s2' : 'rsev-s3'}`}>{issue.severity}</span>
+              <span className="ril-locale">{issue.locale}</span>
+              <span style={{ fontSize: 10, color: 'var(--text3)' }}>{issue.device}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Center: RCA report */}
       <div className="rca-left">
-        {/* RCA Reports panel heading */}
-        <div style={{ padding: '12px 20px 0', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ fontFamily: 'Google Sans', fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>RCA Reports</div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 12 }}>Report ID: <code style={{ fontSize: 11 }}>RCA-2026-043-001</code> · Sprint 43 · PT-BR Regression</div>
+        <div style={{ padding: '10px 20px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontFamily: 'Google Sans', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>RCA Report — {selectedIssue.id}</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)' }}>ID: <code style={{ fontSize: 11 }}>{selectedIssue.rca.rcaId}</code> · {selectedIssue.rca.sprint} · {selectedIssue.locale}</div>
         </div>
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* RCA header */}
         <div className="rca-header">
           <div className="rca-avatar">
@@ -1048,15 +1552,15 @@ function RcaTab({ sessionId, userId, onTabChange }) {
           </div>
           <div style={{ flex: 1 }}>
             <div className="rcah-label">Agent Root Cause Analysis · Complete</div>
-            <div className="rcah-title">PT-BR Nest Hub Home Screen — Sprint 43 String Keys</div>
+            <div className="rcah-title">{selectedIssue.rca.title}</div>
             <div className="rcah-meta">
-              <span className="rcah-badge" style={{ background: '#d1fae5', color: '#065f46' }}>97% Confidence</span>
+              <span className="rcah-badge" style={{ background: '#d1fae5', color: '#065f46' }}>{selectedIssue.rca.confidence}% Confidence</span>
               <span className="rcah-badge" style={{ background: 'var(--hil-l)', color: '#92400e' }}>Pending Approval</span>
-              <span className="rcah-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>P0 Release Blocker</span>
+              <span className="rcah-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>{selectedIssue.priority} Blocker</span>
             </div>
           </div>
           <div className="rcah-actions">
-            <button className="btn-sm btn-outline" onClick={() => onTabChange?.('runtests')}>← Back</button>
+            <button className="btn-sm btn-outline" onClick={() => { setSelectedIssueId?.(selectedIssue.id); onTabChange?.('runtests') }}>← Back</button>
             <button className="btn-sm btn-agent" onClick={() => setHilIssue(selectedIssue)}>File Issue →</button>
           </div>
         </div>
@@ -1069,51 +1573,37 @@ function RcaTab({ sessionId, userId, onTabChange }) {
             <span className="rsh-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>Blocker</span>
           </div>
           <div className="rca-sec-body">
-            <p className="rca-narrative">
-              Release branch <code>l10n-sprint43</code> is missing the PT-BR string bundle update. Strings <code>hs_greeting_morning</code>, <code>hs_greeting_afternoon</code>, <code>hs_weather_label</code>, and <code>hs_calendar_today</code> were added to <code>en-US.strings</code> in Sprint 43 but were <strong>not propagated to the PT-BR bundle</strong> <code>pt-BR.strings</code>. The app correctly detects the missing keys and falls back to the English locale — resulting in untranslated UI on all PT-BR Nest Hub devices.
-            </p>
+            <p className="rca-narrative">{selectedIssue.rca.rootCause}</p>
           </div>
         </div>
 
-        {/* String bundle diff */}
+        {/* Evidence diff */}
         <div className="rca-section">
           <div className="rca-sec-header">
             <div className="rsh-icon" style={{ background: 'var(--g-blue)' }}><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg></div>
-            <span className="rsh-title">String Bundle Diff</span>
-            <span className="rsh-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>4 keys missing</span>
+            <span className="rsh-title">{selectedIssue.rca.diffTitle}</span>
+            <span className="rsh-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>{selectedIssue.rca.diffLocale.length} issues</span>
           </div>
           <div className="rca-sec-body">
             <div className="evidence-grid">
               <div className="ev-card">
-                <div className="ev-title">en-US.strings (Sprint 43)</div>
-                <div className="ev-code">
-                  <div className="ev-ok">hs_greeting_morning = "Good morning"</div>
-                  <div className="ev-ok">hs_greeting_afternoon = "Good afternoon"</div>
-                  <div className="ev-ok">hs_weather_label = "Weather"</div>
-                  <div className="ev-ok">hs_calendar_today = "Today"</div>
-                </div>
+                <div className="ev-title">Actual (Failing State)</div>
+                <div className="ev-code">{selectedIssue.rca.diffLocale.map((l, i) => <div key={i} className="ev-missing">{l}</div>)}</div>
               </div>
               <div className="ev-card">
-                <div className="ev-title">pt-BR.strings (Sprint 43)</div>
-                <div className="ev-code">
-                  <div className="ev-missing">hs_greeting_morning = ∅ MISSING</div>
-                  <div className="ev-missing">hs_greeting_afternoon = ∅ MISSING</div>
-                  <div className="ev-missing">hs_weather_label = ∅ MISSING</div>
-                  <div className="ev-missing">hs_calendar_today = ∅ MISSING</div>
-                </div>
+                <div className="ev-title">Expected / Baseline</div>
+                <div className="ev-code">{selectedIssue.rca.diffEn.map((l, i) => <div key={i} className="ev-ok">{l}</div>)}</div>
               </div>
             </div>
             <div style={{ marginTop: 12 }}>
               <div className="diff-header">
-                <span className="diff-filename">pt-BR.strings</span>
+                <span className="diff-filename">{selectedIssue.rca.diffTitle}</span>
                 <span style={{ fontSize: 11, background: 'rgba(52,168,83,.2)', color: '#81c995', padding: '1px 8px', borderRadius: 8, fontWeight: 600 }}>Proposed Fix</span>
               </div>
               <div className="diff-body">
-                <div className="diff-line ctx"><span className="dl-gutter ctx" /><span className="dl-code ctx">// Home Screen - Sprint 43 additions</span></div>
-                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_greeting_morning = "Bom dia";</span></div>
-                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_greeting_afternoon = "Boa tarde";</span></div>
-                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_weather_label = "Tempo";</span></div>
-                <div className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">hs_calendar_today = "Hoje";</span></div>
+                {selectedIssue.rca.diffFix.map((line, i) => (
+                  <div key={i} className="diff-line add"><span className="dl-gutter add">+</span><span className="dl-code add">{line}</span></div>
+                ))}
               </div>
             </div>
           </div>
@@ -1123,16 +1613,16 @@ function RcaTab({ sessionId, userId, onTabChange }) {
         <div className="rca-section">
           <div className="rca-sec-header">
             <div className="rsh-icon" style={{ background: 'var(--agent)' }}><svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>
-            <span className="rsh-title">Visual Evidence — Untranslated Strings Captured on Device</span>
+            <span className="rsh-title">Visual Evidence — {selectedIssue.device} · {selectedIssue.locale}</span>
           </div>
           <div className="rca-sec-body">
             <div style={{ display: 'flex', gap: 12 }}>
-              {[['Greeting', 'Good morning', 'Bom dia'], ['Weather', 'Weather', 'Tempo'], ['Calendar', 'Today', 'Hoje']].map(([label, wrong, right]) => (
+              {selectedIssue.rca.evidence.map(([label, wrong, right]) => (
                 <div key={label} style={{ flex: 1, background: '#1a1a2e', borderRadius: 10, overflow: 'hidden', border: '1px solid #3c3c5c' }}>
-                  <div style={{ background: '#303134', padding: '4px 10px', fontSize: 10, color: '#9aa0a6', fontFamily: 'Roboto Mono' }}>Nest Hub · pt-BR · {label}</div>
+                  <div style={{ background: '#303134', padding: '4px 10px', fontSize: 10, color: '#9aa0a6', fontFamily: 'Roboto Mono' }}>{selectedIssue.device} · {selectedIssue.locale} · {label}</div>
                   <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <div style={{ background: 'rgba(30,30,50,.8)', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'Roboto Mono' }}>
-                      <div style={{ color: '#f28b82', fontSize: 9, marginBottom: 2 }}>ACTUAL (untranslated)</div>
+                      <div style={{ color: '#f28b82', fontSize: 9, marginBottom: 2 }}>ACTUAL (failing)</div>
                       <div style={{ color: '#fca5a5' }}>"{wrong}"</div>
                     </div>
                     <div style={{ background: 'rgba(30,50,30,.8)', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontFamily: 'Roboto Mono' }}>
@@ -1151,14 +1641,14 @@ function RcaTab({ sessionId, userId, onTabChange }) {
           <div className="rca-sec-header">
             <div className="rsh-icon" style={{ background: 'var(--hil)' }}><svg viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm1 14h-2v-2h2v2zm0-4h-2V9h2v3z"/></svg></div>
             <span className="rsh-title">Impact Analysis</span>
-            <span className="rsh-badge" style={{ background: 'var(--hil-l)', color: '#92400e' }}>3 Locales Affected</span>
+            <span className="rsh-badge" style={{ background: 'var(--hil-l)', color: '#92400e' }}>{selectedIssue.rca.impact.length} test cases</span>
           </div>
           <div className="rca-sec-body" style={{ padding: 0 }}>
             <table className="impact-table">
-              <thead><tr><th>Test ID</th><th>Description</th><th>Severity</th><th>Device</th></tr></thead>
+              <thead><tr><th>Test ID</th><th>Description</th><th>Priority</th><th>Device</th></tr></thead>
               <tbody>
-                {[['LOC-NH-11198', 'Greeting string untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11199', 'Weather label untranslated', 'P0', 'Nest Hub'], ['LOC-NH-11200', 'Calendar "Today" untranslated', 'P1', 'Nest Hub']].map(([id, desc, sev, dev]) => (
-                  <tr key={id}>
+                {selectedIssue.rca.impact.map(([id, desc, sev, dev]) => (
+                  <tr key={id} style={{ cursor: 'pointer' }} onClick={() => onTabChange?.('runtests')}>
                     <td style={{ fontFamily: 'Roboto Mono', color: 'var(--g-blue)', fontSize: 12 }}>{id}</td>
                     <td>{desc}</td>
                     <td><span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: sev === 'P0' ? '#fee2e2' : '#fff7ed', color: sev === 'P0' ? '#991b1b' : '#9a3412' }}>{sev}</span></td>
@@ -1170,30 +1660,31 @@ function RcaTab({ sessionId, userId, onTabChange }) {
           </div>
         </div>
 
-        {/* Agent messages */}
-        {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+        </div>
+
+        {/* Agent response panel — only visible when send() produces messages */}
+        {messages.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--border2)', background: '#f8f9fa', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontFamily: 'Google Sans', fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>Agent Response</div>
+            {messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+          </div>
+        )}
       </div>
 
       {/* Right: Issue filing panel */}
       <div className="rca-right">
         <div className="ir-header">
           <div className="irh-title">Issue Filing — Buganizer</div>
-          <div className="irh-sub">Agent-populated draft · Awaiting approval</div>
+          <div className="irh-sub">{selectedIssue.id} · {selectedIssue.status}</div>
         </div>
         <div className="buganizer-card">
           <div className="bc-header" style={{ background: '#1a73e8' }}>
             <span className="bc-logo">Buganizer</span>
-            <span className="bc-title">[PT-BR][P0] Checkout greeting strings untranslated</span>
-            <span className="bc-id">b/337821049</span>
+            <span className="bc-title">{selectedIssue.title.slice(0, 44)}…</span>
+            <span className="bc-id">{selectedIssue.id}</span>
           </div>
           <div className="bc-body">
-            {[
-              ['Title', '[PT-BR][P0] Home Screen greeting strings untranslated on Nest Hub 4.1.0.12-rc3'],
-              ['Component', 'Nest > Firmware > Localization > HomeScreen'],
-              ['Severity', 'S2 — Major'],
-              ['Sprint', 'Sprint 43'],
-              ['Assignee', 'l10n-team@google.com'],
-            ].map(([label, val]) => (
+            {selectedIssue.bugFields.map(([label, val]) => (
               <div key={label} className="bc-field">
                 <span className="bcf-label">{label}</span>
                 <span className="bcf-val">{val}</span>
@@ -1210,7 +1701,7 @@ function RcaTab({ sessionId, userId, onTabChange }) {
             <div className="cb-avatar">AI</div>
             <div className="cb-content">
               <div className="cbc-name">LocaTest Agent <span className="cbc-role">· RCA Agent</span></div>
-              <div className="cbc-text">Root cause confirmed: Sprint 43 PT-BR bundle missing 4 keys (<code>hs_greeting_morning</code>, <code>hs_greeting_afternoon</code>, <code>hs_weather_label</code>, <code>hs_calendar_today</code>). Apply proposed diff to <code>pt-BR.strings</code> and rebuild the l10n-sprint43 branch to resolve.</div>
+              <div className="cbc-text">{selectedIssue.comment}</div>
             </div>
           </div>
         </div>
@@ -1220,8 +1711,8 @@ function RcaTab({ sessionId, userId, onTabChange }) {
           <div className="ha-buttons">
             <button className="btn-approve" onClick={() => setHilIssue(selectedIssue)}>✓ Approve &amp; File to Buganizer</button>
             <div className="btn-row">
-              <button className="btn-refine" onClick={() => send('Refine the Buganizer issue draft to improve precision and add more technical detail')}>Refine Issue</button>
-              <button className="btn-discard" onClick={() => send('Discard the current Buganizer draft and start fresh')}>Discard Draft</button>
+              <button className="btn-refine" onClick={() => send(`Refine the Buganizer issue draft for ${selectedIssue.id} to improve precision and add more technical detail`)}>Refine Issue</button>
+              <button className="btn-discard" onClick={() => send(`Discard the current draft for ${selectedIssue.id} and start fresh`)}>Discard Draft</button>
             </div>
           </div>
         </div>
@@ -1233,9 +1724,76 @@ function RcaTab({ sessionId, userId, onTabChange }) {
 }
 
 // ─── Test Generation Tab ───────────────────────────────────────────────────────
+const TEST_SUITES = [
+  {
+    id: 'TS-001', name: 'Home Screen & Ambient Display', device: 'Nest Hub',
+    total: 847, pass: 812, fail: 23, skip: 12, automated: 644, automation: '76%',
+    lastRun: '2026-05-29',
+    cases: [
+      { id: 'LOC-NH-11198', name: 'Greeting string — morning', locale: 'pt-BR', status: 'FAIL', priority: 'P0', automated: true },
+      { id: 'LOC-NH-11199', name: 'Weather label translation', locale: 'pt-BR', status: 'FAIL', priority: 'P0', automated: true },
+      { id: 'LOC-NH-11200', name: 'Calendar "Today" label', locale: 'pt-BR', status: 'FAIL', priority: 'P1', automated: true },
+      { id: 'LOC-NH-11201', name: 'Ambient clock format (RTL)', locale: 'ar-SA', status: 'PASS', priority: 'P1', automated: true },
+      { id: 'LOC-NH-11202', name: 'Home screen RTL layout', locale: 'ar-SA', status: 'PASS', priority: 'P1', automated: false },
+      { id: 'LOC-NH-11203', name: 'Date format — de-DE', locale: 'de-DE', status: 'PASS', priority: 'P2', automated: true },
+      { id: 'LOC-NH-11204', name: 'Greeting string — evening', locale: 'fr-FR', status: 'SKIP', priority: 'P2', automated: false },
+      { id: 'LOC-NH-11205', name: 'Ambient greeting (ja-JP)', locale: 'ja-JP', status: 'PASS', priority: 'P2', automated: true },
+      { id: 'LOC-NH-11206', name: 'Temperature unit label', locale: 'ko-KR', status: 'PASS', priority: 'P2', automated: true },
+    ],
+  },
+  {
+    id: 'TS-002', name: 'Google Assistant UI', device: 'Nest Hub',
+    total: 312, pass: 287, fail: 8, skip: 17, automated: 193, automation: '62%',
+    lastRun: '2026-05-29',
+    cases: [
+      { id: 'LOC-AS-20101', name: 'Voice query response — pt-BR', locale: 'pt-BR', status: 'PASS', priority: 'P1', automated: true },
+      { id: 'LOC-AS-20102', name: 'Assistant card title (ar-SA)', locale: 'ar-SA', status: 'FAIL', priority: 'P0', automated: true },
+      { id: 'LOC-AS-20103', name: 'Suggestion chip text — de-DE', locale: 'de-DE', status: 'PASS', priority: 'P2', automated: true },
+      { id: 'LOC-AS-20104', name: 'Error message translation (fr-FR)', locale: 'fr-FR', status: 'SKIP', priority: 'P2', automated: false },
+      { id: 'LOC-AS-20105', name: 'Follow-up prompt — ja-JP', locale: 'ja-JP', status: 'PASS', priority: 'P2', automated: true },
+    ],
+  },
+  {
+    id: 'TS-003', name: 'Device Settings & Onboarding', device: 'Nest Hub',
+    total: 198, pass: 191, fail: 4, skip: 3, automated: 118, automation: '60%',
+    lastRun: '2026-05-28',
+    cases: [
+      { id: 'LOC-ST-30201', name: 'Language selection UI', locale: 'pt-BR', status: 'PASS', priority: 'P1', automated: true },
+      { id: 'LOC-ST-30202', name: 'Timezone label — ar-SA', locale: 'ar-SA', status: 'FAIL', priority: 'P1', automated: true },
+      { id: 'LOC-ST-30203', name: 'Wi-Fi setup strings — de-DE', locale: 'de-DE', status: 'PASS', priority: 'P2', automated: false },
+      { id: 'LOC-ST-30204', name: 'Account link prompt (ko-KR)', locale: 'ko-KR', status: 'SKIP', priority: 'P3', automated: false },
+    ],
+  },
+  {
+    id: 'TS-004', name: 'Temperature Control UI', device: 'Nest Thermostat',
+    total: 267, pass: 241, fail: 18, skip: 8, automated: 187, automation: '70%',
+    lastRun: '2026-05-29',
+    cases: [
+      { id: 'LOC-NT-11201', name: 'Temperature label RTL overflow', locale: 'ar-SA', status: 'FAIL', priority: 'P0', automated: true },
+      { id: 'LOC-NT-11202', name: 'Degree symbol localisation', locale: 'ar-SA', status: 'FAIL', priority: 'P0', automated: true },
+      { id: 'LOC-NT-11203', name: 'Mode labels (Heat/Cool) — pt-BR', locale: 'pt-BR', status: 'PASS', priority: 'P1', automated: true },
+      { id: 'LOC-NT-11204', name: 'Schedule time format — de-DE', locale: 'de-DE', status: 'PASS', priority: 'P2', automated: true },
+      { id: 'LOC-NT-11205', name: 'Eco mode label — ja-JP', locale: 'ja-JP', status: 'SKIP', priority: 'P3', automated: false },
+    ],
+  },
+  {
+    id: 'TS-005', name: 'Notifications & Alerts', device: 'Nest Hub',
+    total: 143, pass: 138, fail: 3, skip: 2, automated: 129, automation: '90%',
+    lastRun: '2026-05-28',
+    cases: [
+      { id: 'LOC-NF-40101', name: 'Motion alert string — pt-BR', locale: 'pt-BR', status: 'PASS', priority: 'P1', automated: true },
+      { id: 'LOC-NF-40102', name: 'Package delivery text — de-DE', locale: 'de-DE', status: 'FAIL', priority: 'P1', automated: true },
+      { id: 'LOC-NF-40103', name: 'Sound alert label (ar-SA)', locale: 'ar-SA', status: 'PASS', priority: 'P2', automated: true },
+    ],
+  },
+]
+
 function TestGenTab({ sessionId, userId }) {
-  const { messages, loading, send, lastText } = useAgent(sessionId, userId)
+  const { messages, loading, send } = useAgent(sessionId, userId)
+  const [mode, setMode] = useState('generate')
   const [form, setForm] = useState({ feature: '', device: 'Nest Hub', suite: 'Home Screen & Ambient Display', locales: 'all', priority: 'P1', description: '' })
+  const [selectedSuite, setSelectedSuite] = useState(TEST_SUITES[0])
+  const [tcFilter, setTcFilter] = useState('All')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const generate = () => {
@@ -1243,50 +1801,152 @@ function TestGenTab({ sessionId, userId }) {
     send(`Generate test cases for "${form.feature}" on ${form.device}, suite: ${form.suite}, locales: ${form.locales}, priority: ${form.priority}. ${form.description}`)
   }
 
+  const filteredCases = selectedSuite
+    ? (tcFilter === 'All' ? selectedSuite.cases : selectedSuite.cases.filter(c => c.status === tcFilter))
+    : []
+
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* Left panel */}
       <div className="testgen-form">
-        <div className="tg-title">Generate Test Cases</div>
-        <div className="tg-field"><label className="tg-label">Feature Name *</label><input className="tg-input" value={form.feature} onChange={e => set('feature', e.target.value)} placeholder="e.g. Night Mode Display for Thermostat" /></div>
-        <div className="tg-field"><label className="tg-label">Nest Device</label>
-          <select className="tg-select" value={form.device} onChange={e => set('device', e.target.value)}>
-            {['Nest Hub', 'Nest Hub Max', 'Nest Mini', 'Nest Cam', 'Nest Doorbell', 'Nest Thermostat'].map(d => <option key={d}>{d}</option>)}
-          </select>
+        {/* Mode switcher */}
+        <div className="tg-mode-switch">
+          <button className={`tgm-btn${mode === 'generate' ? ' active' : ''}`} onClick={() => setMode('generate')}>Generate</button>
+          <button className={`tgm-btn${mode === 'browse' ? ' active' : ''}`} onClick={() => setMode('browse')}>Browse Suites</button>
         </div>
-        <div className="tg-field"><label className="tg-label">UI Suite</label>
-          <select className="tg-select" value={form.suite} onChange={e => set('suite', e.target.value)}>
-            {['Home Screen & Ambient Display', 'Google Assistant UI', 'Device Settings', 'Temperature Control UI', 'Nest Cam & Doorbell UI', 'Routines & Automation', 'Notifications', 'Device Onboarding', 'Media Playback & Cast'].map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="tg-field"><label className="tg-label">Locales</label>
-          <select className="tg-select" value={form.locales} onChange={e => set('locales', e.target.value)}>
-            <option value="all">All 10 locales (recommended)</option>
-            {['pt-BR', 'ar-SA', 'de-DE', 'fr-FR', 'ja-JP', 'ko-KR', 'zh-CN', 'hi-IN', 'es-ES', 'tr-TR'].map(l => <option key={l}>{l}</option>)}
-          </select>
-        </div>
-        <div className="tg-field"><label className="tg-label">Priority</label>
-          <select className="tg-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
-            {['P0', 'P1', 'P2', 'P3'].map(p => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-        <div className="tg-field"><label className="tg-label">Feature Description</label>
-          <textarea className="tg-input" rows={4} style={{ resize: 'vertical' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Describe expected localisation behaviour, string keys needed, device-specific UI constraints…" />
-        </div>
-        <button className="btn-generate" onClick={generate} disabled={loading || !form.feature.trim()}>
-          {loading ? <><div className="spinner" style={{ borderTopColor: 'white', width: 14, height: 14 }} />Generating…</> : 'Generate Tests'}
-        </button>
-      </div>
-      <div className="testgen-results">
-        <div className="tg-result-header">Generated Tests</div>
-        <div className="tg-result-body">
-          {messages.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text2)' }}>
-              <div style={{ fontSize: 44, marginBottom: 14 }}>✨</div>
-              <div style={{ fontFamily: 'Google Sans', fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>AI-Powered Test Generation</div>
-              <div style={{ fontSize: 13, lineHeight: 1.7 }}>Fill in the feature details and click Generate. The agent will create localisation test cases for all selected locales, including string key verification, RTL layout checks, and device-specific UI assertions.</div>
+
+        {mode === 'generate' ? (
+          <>
+            <div className="tg-title">Generate Test Cases</div>
+            <div className="tg-field"><label className="tg-label">Feature Name *</label><input className="tg-input" value={form.feature} onChange={e => set('feature', e.target.value)} placeholder="e.g. Night Mode Display for Thermostat" /></div>
+            <div className="tg-field"><label className="tg-label">Nest Device</label>
+              <select className="tg-select" value={form.device} onChange={e => set('device', e.target.value)}>
+                {['Nest Hub', 'Nest Hub Max', 'Nest Mini', 'Nest Cam', 'Nest Doorbell', 'Nest Thermostat'].map(d => <option key={d}>{d}</option>)}
+              </select>
             </div>
-          ) : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
-        </div>
+            <div className="tg-field"><label className="tg-label">UI Suite</label>
+              <select className="tg-select" value={form.suite} onChange={e => set('suite', e.target.value)}>
+                {['Home Screen & Ambient Display', 'Google Assistant UI', 'Device Settings', 'Temperature Control UI', 'Nest Cam & Doorbell UI', 'Routines & Automation', 'Notifications', 'Device Onboarding', 'Media Playback & Cast'].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="tg-field"><label className="tg-label">Locales</label>
+              <select className="tg-select" value={form.locales} onChange={e => set('locales', e.target.value)}>
+                <option value="all">All 10 locales (recommended)</option>
+                {['pt-BR', 'ar-SA', 'de-DE', 'fr-FR', 'ja-JP', 'ko-KR', 'zh-CN', 'hi-IN', 'es-ES', 'tr-TR'].map(l => <option key={l}>{l}</option>)}
+              </select>
+            </div>
+            <div className="tg-field"><label className="tg-label">Priority</label>
+              <select className="tg-select" value={form.priority} onChange={e => set('priority', e.target.value)}>
+                {['P0', 'P1', 'P2', 'P3'].map(p => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className="tg-field"><label className="tg-label">Feature Description</label>
+              <textarea className="tg-input" rows={4} style={{ resize: 'vertical' }} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Describe expected localisation behaviour, string keys needed, device-specific UI constraints…" />
+            </div>
+            <button className="btn-generate" onClick={generate} disabled={loading || !form.feature.trim()}>
+              {loading ? <><div className="spinner" style={{ borderTopColor: 'white', width: 14, height: 14 }} />Generating…</> : 'Generate Tests'}
+            </button>
+          </>
+        ) : (
+          /* Browse Suites list */
+          <div className="suite-list">
+            {TEST_SUITES.map(suite => (
+              <div key={suite.id} className={`suite-item${selectedSuite?.id === suite.id ? ' active' : ''}`} onClick={() => { setSelectedSuite(suite); setTcFilter('All') }}>
+                <div className="si-top">
+                  <span className="si-id">{suite.id}</span>
+                  <span className="si-device">{suite.device}</span>
+                </div>
+                <div className="si-name">{suite.name}</div>
+                <div className="si-stats">
+                  <span className="si-stat pass">{suite.pass} pass</span>
+                  <span className="si-stat fail">{suite.fail} fail</span>
+                  <span className="si-stat skip">{suite.skip} skip</span>
+                </div>
+                <div className="si-bar">
+                  <div style={{ height: '100%', background: 'var(--g-green)', width: `${Math.round(suite.pass / suite.total * 100)}%`, borderRadius: 2 }} />
+                  <div style={{ height: '100%', background: 'var(--g-red)', width: `${Math.round(suite.fail / suite.total * 100)}%`, borderRadius: 2 }} />
+                  <div style={{ height: '100%', background: '#dadce0', flex: 1, borderRadius: 2 }} />
+                </div>
+                <div className="si-meta">{suite.total} cases · {suite.automation} automated · {suite.lastRun}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Right panel */}
+      <div className="testgen-results">
+        {mode === 'generate' ? (
+          <>
+            <div className="tg-result-header">Generated Tests</div>
+            <div className="tg-result-body">
+              {messages.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text2)' }}>
+                  <div style={{ fontSize: 44, marginBottom: 14 }}>✨</div>
+                  <div style={{ fontFamily: 'Google Sans', fontSize: 16, color: 'var(--text)', marginBottom: 6 }}>AI-Powered Test Generation</div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7 }}>Fill in the feature details and click Generate. The agent will create localisation test cases for all selected locales, including string key verification, RTL layout checks, and device-specific UI assertions.</div>
+                </div>
+              ) : messages.map((msg, i) => <AgentMsg key={i} msg={msg} onApprove={() => {}} />)}
+            </div>
+          </>
+        ) : selectedSuite ? (
+          <>
+            {/* Suite detail header */}
+            <div className="tcb-header">
+              <div>
+                <div style={{ fontFamily: 'Google Sans', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>{selectedSuite.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>{selectedSuite.id} · {selectedSuite.device} · Last run: {selectedSuite.lastRun}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                {[['Total', selectedSuite.total, 'var(--text)'], ['Pass', selectedSuite.pass, 'var(--g-green)'], ['Fail', selectedSuite.fail, 'var(--g-red)'], ['Skip', selectedSuite.skip, 'var(--text3)']].map(([k, v, c]) => (
+                  <div key={k} style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c, fontFamily: 'Google Sans' }}>{v}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>{k}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Filter bar */}
+            <div className="tc-filter-bar">
+              {['All', 'PASS', 'FAIL', 'SKIP'].map(f => (
+                <div key={f} className={`tcf-tab${tcFilter === f ? ' active' : ''}`} onClick={() => setTcFilter(f)}>
+                  {f}
+                  <span className="tcf-count">{f === 'All' ? selectedSuite.total : selectedSuite.cases.filter(c => c.status === f).length}</span>
+                </div>
+              ))}
+              <button className="tcf-ask-btn" onClick={() => send(`Analyze test suite ${selectedSuite.id}: ${selectedSuite.name}. What are the most critical failures?`)}>Ask Agent →</button>
+            </div>
+            {/* Test case table */}
+            <div className="tc-table-wrap">
+              <table className="tc-table">
+                <thead>
+                  <tr>
+                    {['ID', 'Test Case', 'Locale', 'Priority', 'Status', 'Auto'].map(h => <th key={h}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCases.map(tc => (
+                    <tr key={tc.id}>
+                      <td><span className="tc-id">{tc.id}</span></td>
+                      <td className="tc-name">{tc.name}</td>
+                      <td><span className="tc-locale">{tc.locale}</span></td>
+                      <td><span className={`tc-priority p${tc.priority[1]}`}>{tc.priority}</span></td>
+                      <td>
+                        <span className={`tc-status ts-${tc.status.toLowerCase()}`}>{tc.status}</span>
+                      </td>
+                      <td style={{ textAlign: 'center', color: tc.automated ? 'var(--g-green)' : 'var(--text3)', fontSize: 13 }}>
+                        {tc.automated ? '✓' : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredCases.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 32, color: 'var(--text2)' }}>No test cases matching filter.</div>
+              )}
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   )
@@ -1294,11 +1954,106 @@ function TestGenTab({ sessionId, userId }) {
 
 // ─── Firmware Builds Tab ───────────────────────────────────────────────────────
 const FW_BUILDS = [
-  { id: 'FW-001', device: 'Nest Hub', version: '4.1.0.12-rc3', status: 'in_qa', locales: 10, passRate: '88%', blocker: true },
-  { id: 'FW-002', device: 'Nest Thermostat', version: '6.4.0.3-rc1', status: 'in_qa', locales: 10, passRate: '91%', blocker: true },
-  { id: 'FW-003', device: 'Nest Hub Max', version: '4.1.0.11-rc2', status: 'stable', locales: 10, passRate: '96%', blocker: false },
-  { id: 'FW-004', device: 'Nest Mini', version: '3.2.1.8-rc1', status: 'in_qa', locales: 8, passRate: '94%', blocker: false },
-  { id: 'FW-005', device: 'Nest Cam', version: '2.7.0.5-rc2', status: 'released', locales: 10, passRate: '99%', blocker: false },
+  {
+    id: 'FW-001', device: 'Nest Hub', version: '4.1.0.12-rc3', status: 'in_qa', blocker: true,
+    executed: 1247, passed: 1089, failed: 89, skipped: 69, passRate: '87.3%',
+    localeResults: [
+      { locale: 'pt-BR', executed: 168, passed: 124, failed: 31, skipped: 13 },
+      { locale: 'ar-SA', executed: 145, passed: 121, failed: 18, skipped: 6 },
+      { locale: 'de-DE', executed: 132, passed: 128, failed: 2, skipped: 2 },
+      { locale: 'fr-FR', executed: 132, passed: 129, failed: 1, skipped: 2 },
+      { locale: 'ja-JP', executed: 130, passed: 127, failed: 2, skipped: 1 },
+      { locale: 'ko-KR', executed: 130, passed: 125, failed: 4, skipped: 1 },
+      { locale: 'zh-CN', executed: 130, passed: 127, failed: 2, skipped: 1 },
+      { locale: 'hi-IN', executed: 130, passed: 128, failed: 29, skipped: 43 },
+      { locale: 'es-ES', executed: 100, passed: 98, failed: 0, skipped: 2 },
+      { locale: 'tr-TR', executed: 100, passed: 82, failed: 0, skipped: 18 },
+    ],
+    suiteResults: [
+      { name: 'Home Screen & Ambient Display', executed: 847, passed: 812, failed: 23, skipped: 12 },
+      { name: 'Google Assistant UI', executed: 312, passed: 187, failed: 58, skipped: 67 },
+      { name: 'Device Settings', executed: 88, passed: 90, failed: 8, skipped: 0 },
+    ],
+  },
+  {
+    id: 'FW-002', device: 'Nest Thermostat', version: '6.4.0.3-rc1', status: 'in_qa', blocker: true,
+    executed: 524, passed: 476, failed: 32, skipped: 16, passRate: '90.8%',
+    localeResults: [
+      { locale: 'pt-BR', executed: 57, passed: 55, failed: 1, skipped: 1 },
+      { locale: 'ar-SA', executed: 57, passed: 39, failed: 17, skipped: 1 },
+      { locale: 'de-DE', executed: 50, passed: 49, failed: 1, skipped: 0 },
+      { locale: 'fr-FR', executed: 50, passed: 49, failed: 0, skipped: 1 },
+      { locale: 'ja-JP', executed: 50, passed: 49, failed: 1, skipped: 0 },
+      { locale: 'ko-KR', executed: 50, passed: 47, failed: 2, skipped: 1 },
+      { locale: 'zh-CN', executed: 50, passed: 49, failed: 1, skipped: 0 },
+      { locale: 'hi-IN', executed: 50, passed: 48, failed: 1, skipped: 1 },
+      { locale: 'es-ES', executed: 55, passed: 47, failed: 6, skipped: 2 },
+      { locale: 'tr-TR', executed: 55, passed: 44, failed: 2, skipped: 9 },
+    ],
+    suiteResults: [
+      { name: 'Temperature Control UI', executed: 267, passed: 241, failed: 18, skipped: 8 },
+      { name: 'Device Settings', executed: 198, passed: 191, failed: 14, skipped: 3 },
+      { name: 'Notifications', executed: 59, passed: 44, failed: 0, skipped: 15 },
+    ],
+  },
+  {
+    id: 'FW-003', device: 'Nest Hub Max', version: '4.1.0.11-rc2', status: 'stable', blocker: false,
+    executed: 1105, passed: 1062, failed: 22, skipped: 21, passRate: '96.1%',
+    localeResults: [
+      { locale: 'pt-BR', executed: 115, passed: 109, failed: 5, skipped: 1 },
+      { locale: 'ar-SA', executed: 115, passed: 110, failed: 4, skipped: 1 },
+      { locale: 'de-DE', executed: 110, passed: 108, failed: 1, skipped: 1 },
+      { locale: 'fr-FR', executed: 110, passed: 109, failed: 0, skipped: 1 },
+      { locale: 'ja-JP', executed: 110, passed: 109, failed: 1, skipped: 0 },
+      { locale: 'ko-KR', executed: 110, passed: 107, failed: 3, skipped: 0 },
+      { locale: 'zh-CN', executed: 110, passed: 109, failed: 1, skipped: 0 },
+      { locale: 'hi-IN', executed: 110, passed: 108, failed: 2, skipped: 0 },
+      { locale: 'es-ES', executed: 110, passed: 107, failed: 3, skipped: 0 },
+      { locale: 'tr-TR', executed: 105, passed: 96, failed: 2, skipped: 7 },
+    ],
+    suiteResults: [
+      { name: 'Home Screen & Ambient Display', executed: 610, passed: 593, failed: 10, skipped: 7 },
+      { name: 'Google Assistant UI', executed: 312, passed: 300, failed: 9, skipped: 3 },
+      { name: 'Device Settings', executed: 183, passed: 169, failed: 3, skipped: 11 },
+    ],
+  },
+  {
+    id: 'FW-004', device: 'Nest Mini', version: '3.2.1.8-rc1', status: 'in_qa', blocker: false,
+    executed: 412, passed: 387, failed: 14, skipped: 11, passRate: '93.9%',
+    localeResults: [
+      { locale: 'pt-BR', executed: 55, passed: 51, failed: 3, skipped: 1 },
+      { locale: 'ar-SA', executed: 55, passed: 52, failed: 2, skipped: 1 },
+      { locale: 'de-DE', executed: 50, passed: 49, failed: 1, skipped: 0 },
+      { locale: 'fr-FR', executed: 50, passed: 49, failed: 0, skipped: 1 },
+      { locale: 'ja-JP', executed: 50, passed: 50, failed: 0, skipped: 0 },
+      { locale: 'ko-KR', executed: 50, passed: 47, failed: 3, skipped: 0 },
+      { locale: 'zh-CN', executed: 50, passed: 48, failed: 2, skipped: 0 },
+      { locale: 'hi-IN', executed: 52, passed: 41, failed: 3, skipped: 8 },
+    ],
+    suiteResults: [
+      { name: 'Google Assistant UI', executed: 265, passed: 251, failed: 10, skipped: 4 },
+      { name: 'Device Settings', executed: 147, passed: 136, failed: 4, skipped: 7 },
+    ],
+  },
+  {
+    id: 'FW-005', device: 'Nest Cam', version: '2.7.0.5-rc2', status: 'released', blocker: false,
+    executed: 318, passed: 315, failed: 2, skipped: 1, passRate: '99.1%',
+    localeResults: [
+      { locale: 'pt-BR', executed: 35, passed: 35, failed: 0, skipped: 0 },
+      { locale: 'ar-SA', executed: 35, passed: 34, failed: 1, skipped: 0 },
+      { locale: 'de-DE', executed: 30, passed: 30, failed: 0, skipped: 0 },
+      { locale: 'fr-FR', executed: 30, passed: 30, failed: 0, skipped: 0 },
+      { locale: 'ja-JP', executed: 30, passed: 30, failed: 0, skipped: 0 },
+      { locale: 'ko-KR', executed: 30, passed: 29, failed: 1, skipped: 0 },
+      { locale: 'zh-CN', executed: 30, passed: 30, failed: 0, skipped: 0 },
+      { locale: 'hi-IN', executed: 28, passed: 27, failed: 0, skipped: 1 },
+      { locale: 'es-ES', executed: 35, passed: 35, failed: 0, skipped: 0 },
+      { locale: 'tr-TR', executed: 35, passed: 35, failed: 0, skipped: 0 },
+    ],
+    suiteResults: [
+      { name: 'Nest Cam & Doorbell UI', executed: 318, passed: 315, failed: 2, skipped: 1 },
+    ],
+  },
 ]
 
 function FirmwareTab({ sessionId, userId, onTabChange }) {
@@ -1326,7 +2081,12 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
               <div className="fw-version">{fw.version}</div>
               <div className="fw-badges">
                 <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: ss.bg, color: ss.color }}>{fw.status.replace('_', ' ')}</span>
-                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{fw.passRate} pass</span>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{fw.passRate}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4, fontSize: 11 }}>
+                <span style={{ color: 'var(--g-green)' }}>{fw.passed}P</span>
+                <span style={{ color: 'var(--g-red)' }}>{fw.failed}F</span>
+                <span style={{ color: 'var(--text3)' }}>{fw.skipped}S</span>
               </div>
             </div>
           )
@@ -1335,32 +2095,128 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
       <div className="fw-right">
         {selected ? (
           <>
+            {/* Header */}
             <div className="fw-detail-header">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div className="fw-detail-title">{selected.device} — {selected.version}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Sprint 43 · QA Build</div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {selected.blocker && <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 14, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Release Blocker</span>}
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 14, background: statusStyle(selected.status).bg, color: statusStyle(selected.status).color }}>{selected.status.replace('_', ' ')}</span>
                 </div>
               </div>
-              <div className="fw-stats-row" style={{ marginTop: 12 }}>
-                {[['Locales Tested', selected.locales], ['Pass Rate', selected.passRate], ['Sprint', 'Sprint 43']].map(([k, v]) => (
-                  <div key={k} className="fw-stat">
-                    <div className="fw-stat-val">{v}</div>
-                    <div className="fw-stat-label">{k}</div>
+            </div>
+
+            {/* Execution summary 4 cards */}
+            <div className="build-exec-section">
+              <div className="bes-title">Test Execution Summary</div>
+              <div className="exec-stat-grid">
+                {[
+                  { label: 'Executed', value: selected.executed, color: 'var(--text)', bg: '#f8f9fa' },
+                  { label: 'Passed', value: selected.passed, color: 'var(--g-green)', bg: '#d1fae5' },
+                  { label: 'Failed', value: selected.failed, color: 'var(--g-red)', bg: '#fee2e2' },
+                  { label: 'Skipped', value: selected.skipped, color: 'var(--text3)', bg: '#f1f3f4' },
+                ].map(({ label, value, color, bg }) => (
+                  <div key={label} className="exec-stat-card" style={{ background: bg }}>
+                    <div className="esc-value" style={{ color }}>{value.toLocaleString()}</div>
+                    <div className="esc-label">{label}</div>
                   </div>
                 ))}
               </div>
+              {/* Pass rate bar */}
+              <div style={{ padding: '0 16px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text2)', marginBottom: 6 }}>
+                  <span>Overall pass rate</span>
+                  <span style={{ fontWeight: 700, color: selected.failed > 10 ? 'var(--g-red)' : 'var(--g-green)' }}>{selected.passRate}</span>
+                </div>
+                <div style={{ height: 8, background: '#f1f3f4', borderRadius: 4, overflow: 'hidden', display: 'flex' }}>
+                  <div style={{ width: `${(selected.passed / selected.executed * 100).toFixed(1)}%`, background: 'var(--g-green)', transition: 'width .4s' }} />
+                  <div style={{ width: `${(selected.failed / selected.executed * 100).toFixed(1)}%`, background: 'var(--g-red)' }} />
+                  <div style={{ flex: 1, background: '#dadce0' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 11, color: 'var(--text2)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--g-green)', display: 'inline-block' }} />Pass</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--g-red)', display: 'inline-block' }} />Fail</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: '#dadce0', display: 'inline-block' }} />Skip</span>
+                </div>
+              </div>
             </div>
-            <div className="agent-feed" style={{ padding: '16px 20px' }}>
+
+            {/* Suite breakdown */}
+            <div className="build-exec-section">
+              <div className="bes-title">Test Suite Results</div>
+              <div style={{ padding: '0 16px 14px' }}>
+                {selected.suiteResults.map(sr => {
+                  const pct = Math.round(sr.passed / sr.executed * 100)
+                  return (
+                    <div key={sr.name} className="suite-result-row">
+                      <div className="srr-name">{sr.name}</div>
+                      <div className="srr-bar-wrap">
+                        <div style={{ height: '100%', background: 'var(--g-green)', width: `${sr.passed / sr.executed * 100}%` }} />
+                        <div style={{ height: '100%', background: 'var(--g-red)', width: `${sr.failed / sr.executed * 100}%` }} />
+                        <div style={{ height: '100%', background: '#dadce0', flex: 1 }} />
+                      </div>
+                      <div className="srr-stats">
+                        <span style={{ color: 'var(--g-green)' }}>{sr.passed}P</span>
+                        <span style={{ color: 'var(--g-red)' }}>{sr.failed}F</span>
+                        <span style={{ color: 'var(--text3)' }}>{sr.skipped}S</span>
+                        <span style={{ color: 'var(--text2)', marginLeft: 4 }}>{pct}%</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Locale breakdown table */}
+            <div className="build-exec-section">
+              <div className="bes-title">Locale Breakdown</div>
+              <div style={{ overflowX: 'auto', margin: '0 16px 16px' }}>
+                <table className="locale-result-table">
+                  <thead>
+                    <tr>
+                      <th>Locale</th>
+                      <th>Executed</th>
+                      <th>Passed</th>
+                      <th>Failed</th>
+                      <th>Skipped</th>
+                      <th>Pass Rate</th>
+                      <th>Health</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.localeResults.map(lr => {
+                      const pct = Math.round(lr.passed / lr.executed * 100)
+                      const health = pct >= 97 ? 'green' : pct >= 90 ? 'yellow' : 'red'
+                      return (
+                        <tr key={lr.locale}>
+                          <td><span className="lrt-locale">{lr.locale}</span></td>
+                          <td className="lrt-num">{lr.executed}</td>
+                          <td className="lrt-num" style={{ color: 'var(--g-green)', fontWeight: 600 }}>{lr.passed}</td>
+                          <td className="lrt-num" style={{ color: lr.failed > 0 ? 'var(--g-red)' : 'var(--text3)', fontWeight: lr.failed > 0 ? 700 : 400 }}>{lr.failed}</td>
+                          <td className="lrt-num" style={{ color: 'var(--text3)' }}>{lr.skipped}</td>
+                          <td className="lrt-num">{pct}%</td>
+                          <td>
+                            <span className={`lrt-health lrth-${health}`}>{health === 'green' ? '● Good' : health === 'yellow' ? '● Warn' : '● Critical'}</span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Agent feed */}
+            <div className="agent-feed" style={{ padding: '16px 20px', minHeight: 120 }}>
               {messages.length === 0 && (
                 <div className="agent-banner">
                   <div className="agent-avatar"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.72V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.72c-.6-.34-1-.98-1-1.72a2 2 0 012-2z"/></svg></div>
                   <div>
                     <div className="at-label">LocaTest Agent</div>
-                    <div className="at-text">Select a build or ask about firmware QA status<span className="cursor" /></div>
+                    <div className="at-text">Ask about this build — e.g. "What's causing the AR-SA failures?" or "Compare with previous sprint"<span className="cursor" /></div>
                   </div>
                 </div>
               )}
@@ -1368,7 +2224,7 @@ function FirmwareTab({ sessionId, userId, onTabChange }) {
             </div>
           </>
         ) : (
-          <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a firmware build</div></div>
+          <div className="empty-state"><div className="empty-icon">📱</div><div className="empty-title">Select a build</div></div>
         )}
       </div>
     </div>
@@ -1401,30 +2257,30 @@ function Footer() {
 // ─── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState('workspace')
-  const [convOpen, setConvOpen] = useState(false)
+  const [selectedIssueId, setSelectedIssueId] = useState(null)
+  const [chipContext, setChipContext] = useState(null)
   const sessionId = useRef(Math.random().toString(36).slice(2)).current
   const userId = 'default_user'
 
   const sharedAgent = useAgent(sessionId, userId)
-  const tabProps = { sessionId, userId, onTabChange: setTab }
+  const tabProps = { sessionId, userId, onTabChange: setTab, selectedIssueId, setSelectedIssueId, setChipContext }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Navbar />
       <SessionBar activeTab={tab} onTabChange={setTab} />
       <TabNav active={tab} onChange={setTab} />
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {tab === 'workspace'  && <WorkspaceTab {...tabProps} />}
           {tab === 'runtests'   && <SimulationTab {...tabProps} />}
           {tab === 'rca'        && <RcaTab {...tabProps} />}
           {tab === 'testgen'    && <TestGenTab {...tabProps} />}
           {tab === 'builds'     && <FirmwareTab {...tabProps} />}
         </div>
-        <BottomChat onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} onOpenConv={() => setConvOpen(true)} />
+        <ChatDrawer onSend={sharedAgent.send} loading={sharedAgent.loading} lastText={sharedAgent.lastText} activeTab={tab} messages={sharedAgent.messages} chipContext={chipContext} />
       </div>
       <Footer />
-      {convOpen && <ConvModal messages={sharedAgent.messages} onClose={() => setConvOpen(false)} />}
     </div>
   )
 }

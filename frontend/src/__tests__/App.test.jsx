@@ -60,8 +60,8 @@ describe('App', () => {
   it('switches to Run Tests tab on click', () => {
     render(<App />)
     fireEvent.click(screen.getAllByText('Run Tests')[0])
-    expect(screen.getByText('PT-BR Regression')).toBeInTheDocument()
-    expect(screen.getByText('AR-SA Smoke')).toBeInTheDocument()
+    expect(screen.getByText(/PT-BR Home Screen Regression/i)).toBeInTheDocument()
+    expect(screen.getByText(/AR-SA Smoke Test Suite/i)).toBeInTheDocument()
   })
 
   it('switches to Test Generator tab and shows form', () => {
